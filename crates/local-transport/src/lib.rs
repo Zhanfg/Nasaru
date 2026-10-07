@@ -7,6 +7,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub const DEFAULT_MAX_PACKET: usize = 4096;
 pub const DEFAULT_BACKLOG: i32 = 4;
@@ -185,6 +186,13 @@ impl Drop for SeqPacketListener {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiveOutcome {
+    Packet(Vec<u8>),
+    Timeout,
+    Closed,
+}
+
 #[derive(Debug)]
 pub struct SeqPacketConnection {
     fd: OwnedFd,
@@ -239,8 +247,43 @@ impl SeqPacketConnection {
     }
 
     pub fn recv_packet(&self, max: usize) -> Result<Option<Vec<u8>>, TransportError> {
+        match self.recv_packet_timeout(max, None)? {
+            ReceiveOutcome::Packet(packet) => Ok(Some(packet)),
+            ReceiveOutcome::Closed => Ok(None),
+            ReceiveOutcome::Timeout => unreachable!("blocking receive cannot time out"),
+        }
+    }
+
+    pub fn recv_packet_timeout(
+        &self,
+        max: usize,
+        timeout: Option<Duration>,
+    ) -> Result<ReceiveOutcome, TransportError> {
         if max == 0 {
             return Err(TransportError::PacketTooLarge { max });
+        }
+
+        let timeout_ms = timeout.map_or(-1, duration_to_poll_timeout_ms);
+        let mut poll_fd = libc::pollfd {
+            fd: self.fd.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+            revents: 0,
+        };
+
+        loop {
+            let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+            if ready > 0 {
+                break;
+            }
+            if ready == 0 {
+                return Ok(ReceiveOutcome::Timeout);
+            }
+
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            return Err(error.into());
         }
 
         let mut buffer = vec![0u8; max.saturating_add(1)];
@@ -256,7 +299,7 @@ impl SeqPacketConnection {
             return Err(io::Error::last_os_error().into());
         }
         if received == 0 {
-            return Ok(None);
+            return Ok(ReceiveOutcome::Closed);
         }
 
         let received = received as usize;
@@ -265,8 +308,22 @@ impl SeqPacketConnection {
         }
 
         buffer.truncate(received);
-        Ok(Some(buffer))
+        Ok(ReceiveOutcome::Packet(buffer))
     }
+}
+
+fn duration_to_poll_timeout_ms(duration: Duration) -> i32 {
+    if duration.is_zero() {
+        return 0;
+    }
+
+    let millis = duration.as_millis();
+    let rounded = if duration.subsec_nanos() % 1_000_000 == 0 {
+        millis
+    } else {
+        millis.saturating_add(1)
+    };
+    rounded.min(i32::MAX as u128) as i32
 }
 
 struct UnixAddress {
@@ -451,6 +508,27 @@ mod tests {
         let client = SeqPacketConnection::connect(&path).unwrap();
         client.send_packet(b"riksu-event").unwrap();
         assert_eq!(client.recv_packet(128).unwrap().unwrap(), b"ack");
+        server.join().unwrap();
+        fs::remove_dir(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn timed_receive_wakes_without_polling_loop() {
+        let path = temp_socket("timeout");
+        let listener = SeqPacketListener::bind(&path).unwrap();
+        let uid = unsafe { libc::geteuid() };
+
+        let server = thread::spawn(move || {
+            let connection = listener.accept(&PeerPolicy::new().allow_uid(uid)).unwrap();
+            assert_eq!(
+                connection
+                    .recv_packet_timeout(128, Some(Duration::from_millis(10)))
+                    .unwrap(),
+                ReceiveOutcome::Timeout
+            );
+        });
+
+        let _client = SeqPacketConnection::connect(&path).unwrap();
         server.join().unwrap();
         fs::remove_dir(path.parent().unwrap()).unwrap();
     }

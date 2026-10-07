@@ -5,6 +5,7 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+libc = "0.2"
 nasaru-android-bridge = { path = "../android-bridge" }
 nasaru-android-shell-backend = { path = "../android-shell-backend" }
 nasaru-local-transport = { path = "../local-transport" }

@@ -174,6 +174,8 @@ struct UidState {
     companion_session: bool,
     voice_session: bool,
     video_session: bool,
+    baseline_pending: bool,
+    baseline_applied: bool,
 }
 
 impl Default for UidState {
@@ -188,6 +190,8 @@ impl Default for UidState {
             companion_session: false,
             voice_session: false,
             video_session: false,
+            baseline_pending: false,
+            baseline_applied: false,
         }
     }
 }
@@ -202,7 +206,7 @@ impl UidState {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SignalState {
     by_uid: BTreeMap<u32, UidState>,
 }
@@ -229,6 +233,16 @@ impl SignalState {
                 if importance.is_directly_user_visible() {
                     state.last_user_visible_ns = Some(now_ns);
                 }
+                if state.baseline_pending
+                    && matches!(
+                        importance,
+                        UidImportance::Foreground | UidImportance::Visible | UidImportance::Gone
+                    )
+                {
+                    state.baseline_pending = false;
+                    state.baseline_applied = true;
+                    effects.push(SignalEffect::ApplyThirdPartyBaseline { uid });
+                }
             }
             SignalEvent::ForegroundServiceTypesChanged { types, .. } => {
                 state.fgs_types = types;
@@ -239,9 +253,15 @@ impl SignalState {
             SignalEvent::CompanionPresenceChanged { present, .. } => {
                 state.companion_present = present;
             }
-            SignalEvent::BootstrapUid { third_party, .. }
-            | SignalEvent::PackageAdded { third_party, .. } => {
+            SignalEvent::BootstrapUid { third_party, .. } => {
+                if third_party && !state.baseline_applied {
+                    state.baseline_pending = true;
+                }
+            }
+            SignalEvent::PackageAdded { third_party, .. } => {
                 if third_party {
+                    state.baseline_pending = false;
+                    state.baseline_applied = true;
                     effects.push(SignalEffect::ApplyThirdPartyBaseline { uid });
                 }
             }
@@ -525,15 +545,46 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_existing_third_party_uid_requests_baseline() {
+    fn bootstrap_existing_uid_defers_baseline_until_safe_transition() {
         let mut state = SignalState::default();
-        let effects = state.ingest(SignalEvent::BootstrapUid {
+        let bootstrap = state.ingest(SignalEvent::BootstrapUid {
             uid: 19999,
             third_party: true,
             monotonic_ns: 1,
         });
-        assert!(effects.contains(&SignalEffect::ApplyThirdPartyBaseline { uid: 19999 }));
+        assert!(!bootstrap.contains(&SignalEffect::ApplyThirdPartyBaseline { uid: 19999 }));
         assert!(state.contains_uid(19999));
+
+        let background = state.ingest(SignalEvent::UidImportanceChanged {
+            uid: 19999,
+            importance: UidImportance::ForegroundService,
+            monotonic_ns: 2,
+        });
+        assert!(!background.contains(&SignalEffect::ApplyThirdPartyBaseline { uid: 19999 }));
+
+        let foreground = state.ingest(SignalEvent::UidImportanceChanged {
+            uid: 19999,
+            importance: UidImportance::Foreground,
+            monotonic_ns: 3,
+        });
+        assert!(foreground.contains(&SignalEffect::ApplyThirdPartyBaseline { uid: 19999 }));
+    }
+
+    #[test]
+    fn bootstrap_gone_uid_can_be_baselined_without_disrupting_work() {
+        let mut state = SignalState::default();
+        state.ingest(SignalEvent::BootstrapUid {
+            uid: 19998,
+            third_party: true,
+            monotonic_ns: 1,
+        });
+
+        let gone = state.ingest(SignalEvent::UidImportanceChanged {
+            uid: 19998,
+            importance: UidImportance::Gone,
+            monotonic_ns: 2,
+        });
+        assert!(gone.contains(&SignalEffect::ApplyThirdPartyBaseline { uid: 19998 }));
     }
 
     #[test]

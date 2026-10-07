@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use nasaru_android_shell_backend::ShellAppOpsBackend;
-use nasaru_local_transport::{PeerPolicy, SeqPacketListener, TransportError, DEFAULT_MAX_PACKET};
+use nasaru_local_transport::{
+    PeerPolicy, ReceiveOutcome, SeqPacketListener, TransportError, DEFAULT_MAX_PACKET,
+};
 use nasaru_riksu::{RiksuError, RiksuHeader};
 use nasaru_runtime::{M1Runtime, RuntimeEffect, RuntimeError};
 use nasaru_signal_wire::{decode_signal_event, WireError};
+use std::io;
+use std::time::Duration;
 
 #[derive(Debug, Default)]
 pub struct CollectorSession {
@@ -79,21 +83,53 @@ where
         let mut session = CollectorSession::default();
         let mut processed = 0usize;
 
-        while let Some(frame) = connection
-            .recv_packet(DEFAULT_MAX_PACKET)
-            .map_err(ServeError::Transport)?
-        {
-            self.process_frame(&mut session, &frame)
-                .map_err(ServeError::Daemon)?;
-            processed = processed.saturating_add(1);
-        }
+        loop {
+            let now_ns = boottime_ns()
+                .map_err(|error| ServeError::Transport(TransportError::Io(error)))?;
+            self.runtime
+                .expire(now_ns)
+                .map_err(|error| ServeError::Daemon(DaemonError::Runtime(error)))?;
 
-        Ok(processed)
+            let timeout = self
+                .runtime
+                .next_expiry_ns()
+                .map(|expiry| Duration::from_nanos(expiry.saturating_sub(now_ns)));
+
+            match connection
+                .recv_packet_timeout(DEFAULT_MAX_PACKET, timeout)
+                .map_err(ServeError::Transport)?
+            {
+                ReceiveOutcome::Packet(frame) => {
+                    self.process_frame(&mut session, &frame)
+                        .map_err(ServeError::Daemon)?;
+                    processed = processed.saturating_add(1);
+                }
+                ReceiveOutcome::Timeout => {
+                    let now_ns = boottime_ns()
+                        .map_err(|error| ServeError::Transport(TransportError::Io(error)))?;
+                    self.runtime
+                        .expire(now_ns)
+                        .map_err(|error| ServeError::Daemon(DaemonError::Runtime(error)))?;
+                }
+                ReceiveOutcome::Closed => return Ok(processed),
+            }
+        }
     }
 
     pub fn runtime(&self) -> &M1Runtime<B> {
         &self.runtime
     }
+}
+
+fn boottime_ns() -> io::Result<u64> {
+    let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+    let result = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((ts.tv_sec as u64)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(ts.tv_nsec as u64))
 }
 
 impl Default for NasaruDaemon<ShellAppOpsBackend> {
