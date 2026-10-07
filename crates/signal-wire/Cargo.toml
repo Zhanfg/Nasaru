@@ -1,0 +1,10 @@
+[package]
+name = "nasaru-signal-wire"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Riksu/1 wire encoding for normalized Nasaru signal events"
+
+[dependencies]
+nasaru-riksu = { path = "../riksu" }
+nasaru-signal-state = { path = "../signal-state" }

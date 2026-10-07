@@ -1,0 +1,12 @@
+[package]
+name = "nasaru-runtime"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "M1 event runtime joining signals, Qibitu leases and Android enforcement"
+
+[dependencies]
+nasaru-android-bridge = { path = "../android-bridge" }
+nasaru-capability = { path = "../capability" }
+nasaru-policy = { path = "../policy" }
+nasaru-signal-state = { path = "../signal-state" }

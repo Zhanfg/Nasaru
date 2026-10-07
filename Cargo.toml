@@ -8,6 +8,8 @@ members = [
     "crates/android-bridge",
     "crates/android-shell-backend",
     "crates/signal-state",
+    "crates/signal-wire",
+    "crates/runtime",
     "crates/micro",
     "crates/nasaru-daemon",
 ]

@@ -5,5 +5,14 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 
 [dependencies]
-nasaru-policy = { path = "../policy" }
-nasaru-riksu = { path = "../riksu" }
+nasaru-android-shell-backend = { path = "../android-shell-backend" }
+nasaru-runtime = { path = "../runtime" }
+nasaru-signal-wire = { path = "../signal-wire" }
+
+[lib]
+name = "nasaru_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nasarud"
+path = "src/main.rs"
