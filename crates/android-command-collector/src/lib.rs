@@ -15,8 +15,7 @@ use std::sync::mpsc::Sender;
 pub const DEFAULT_CMD_PATH: &str = "/system/bin/cmd";
 pub const DEFAULT_APP_PROCESS_PATH: &str = "/system/bin/app_process";
 pub const DEFAULT_PACKAGE_DIR: &str = "/data/system";
-pub const DEFAULT_FRAMEWORK_HELPER_JAR: &str =
-    "/data/adb/nasaru/lib/nasaru-framework-observer.jar";
+pub const DEFAULT_FRAMEWORK_HELPER_JAR: &str = "/data/adb/nasaru/lib/nasaru-framework-observer.jar";
 pub const DEFAULT_SOCKET_PATH: &str = "/data/adb/nasaru/run/collector.sock";
 
 #[derive(Debug, Clone)]
@@ -372,12 +371,9 @@ pub fn spawn_framework_observer(
         .stderr(Stdio::null())
         .spawn()?;
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(CollectorError::SourceEnded(
-            "framework observer stdout unavailable",
-        ))?;
+    let stdout = child.stdout.take().ok_or(CollectorError::SourceEnded(
+        "framework observer stdout unavailable",
+    ))?;
 
     std::thread::spawn(move || {
         let mut appops = AppOpsAggregate::default();
