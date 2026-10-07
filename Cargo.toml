@@ -14,4 +14,5 @@ members = [
     "crates/runtime",
     "crates/micro",
     "crates/nasaru-daemon",
+    "crates/android-command-collector",
 ]

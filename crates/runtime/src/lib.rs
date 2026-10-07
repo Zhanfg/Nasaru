@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use nasaru_android_bridge::{
-    apply_trusted_signal, enable_background_override, reconcile_expired,
-    restore_foreground_baseline, AppOpsBackend, TrustedSignal,
+    apply_trusted_signal, apply_uid_foreground_baseline, enable_background_override,
+    restore_foreground_baseline, AppOpsBackend, TrustedSignal, APP_GUARD_RESOURCES,
 };
 use nasaru_capability::{BrokerError, CapabilityBroker};
 use nasaru_policy::Resource;
 use nasaru_signal_state::{SignalEffect, SignalEvent, SignalState};
-
-const APPOPS_RESOURCES: [Resource; 3] =
-    [Resource::Camera, Resource::Microphone, Resource::Location];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeEffect {
@@ -23,6 +20,7 @@ pub enum RuntimeEffect {
 pub enum RuntimeError<E> {
     Broker(BrokerError),
     Backend(E),
+    BackendRollback(E),
 }
 
 #[derive(Debug)]
@@ -41,6 +39,14 @@ impl<B: AppOpsBackend> M1Runtime<B> {
         }
     }
 
+    pub fn with_state(backend: B, signals: SignalState, broker: CapabilityBroker) -> Self {
+        Self {
+            signals,
+            broker,
+            backend,
+        }
+    }
+
     pub fn broker(&self) -> &CapabilityBroker {
         &self.broker
     }
@@ -49,10 +55,20 @@ impl<B: AppOpsBackend> M1Runtime<B> {
         &self.backend
     }
 
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.backend
+    }
+
+    pub fn next_expiry_ns(&self) -> Option<u64> {
+        self.broker.next_expiry_ns()
+    }
+
     pub fn handle_event(
         &mut self,
         event: SignalEvent,
     ) -> Result<Vec<RuntimeEffect>, RuntimeError<B::Error>> {
+        self.expire(event.monotonic_ns())?;
+
         let mut out = Vec::new();
         for effect in self.signals.ingest(event) {
             self.apply_effect(effect, event.monotonic_ns(), &mut out)?;
@@ -61,12 +77,37 @@ impl<B: AppOpsBackend> M1Runtime<B> {
     }
 
     pub fn expire(&mut self, now_monotonic_ns: u64) -> Result<usize, RuntimeError<B::Error>> {
-        reconcile_expired(&mut self.broker, &mut self.backend, now_monotonic_ns)
-            .map_err(RuntimeError::Backend)
-    }
+        let snapshot = self.broker.clone();
+        let expired = self.broker.expire_collect(now_monotonic_ns);
+        let expired_count = expired.len();
+        let mut restored = Vec::<(u32, Resource)>::new();
 
-    pub fn next_expiry_ns(&self) -> Option<u64> {
-        self.broker.next_expiry_ns()
+        for lease in expired {
+            let key = (lease.uid, lease.resource);
+            if restored.contains(&key) {
+                continue;
+            }
+            if APP_GUARD_RESOURCES.contains(&lease.resource)
+                && !self
+                    .broker
+                    .has_active(lease.uid, lease.resource, now_monotonic_ns)
+            {
+                if let Err(error) =
+                    restore_foreground_baseline(&mut self.backend, lease.uid, lease.resource)
+                {
+                    self.broker = snapshot.clone();
+                    if let Err(rollback_error) =
+                        self.rollback_expiry_appops(&snapshot, &restored, now_monotonic_ns)
+                    {
+                        return Err(RuntimeError::BackendRollback(rollback_error));
+                    }
+                    return Err(RuntimeError::Backend(error));
+                }
+                restored.push(key);
+            }
+        }
+
+        Ok(expired_count)
     }
 
     fn apply_effect(
@@ -77,10 +118,8 @@ impl<B: AppOpsBackend> M1Runtime<B> {
     ) -> Result<(), RuntimeError<B::Error>> {
         match effect {
             SignalEffect::ApplyThirdPartyBaseline { uid } => {
-                for resource in APPOPS_RESOURCES {
-                    restore_foreground_baseline(&mut self.backend, uid, resource)
-                        .map_err(RuntimeError::Backend)?;
-                }
+                apply_uid_foreground_baseline(&mut self.backend, uid)
+                    .map_err(RuntimeError::Backend)?;
                 out.push(RuntimeEffect::ThirdPartyBaselineApplied { uid });
             }
             SignalEffect::RemoveUidState { uid } => {
@@ -104,24 +143,71 @@ impl<B: AppOpsBackend> M1Runtime<B> {
         now_monotonic_ns: u64,
     ) -> Result<(), RuntimeError<B::Error>> {
         let uid = signal_uid(signal);
-        let before = APPOPS_RESOURCES
-            .map(|resource| self.broker.has_active(uid, resource, now_monotonic_ns));
+        let snapshot = self.broker.clone();
+        let before = APP_GUARD_RESOURCES
+            .map(|resource| snapshot.has_active(uid, resource, now_monotonic_ns));
 
         apply_trusted_signal(&mut self.broker, signal, now_monotonic_ns)
             .map_err(RuntimeError::Broker)?;
 
-        for (index, resource) in APPOPS_RESOURCES.into_iter().enumerate() {
+        let mut changed = Vec::<Resource>::new();
+
+        for (index, resource) in APP_GUARD_RESOURCES.into_iter().enumerate() {
             let after = self.broker.has_active(uid, resource, now_monotonic_ns);
-            match (before[index], after) {
-                (false, true) => {
-                    enable_background_override(&mut self.backend, uid, resource)
-                        .map_err(RuntimeError::Backend)?;
+            if before[index] == after {
+                continue;
+            }
+
+            let result = if after {
+                enable_background_override(&mut self.backend, uid, resource)
+            } else {
+                restore_foreground_baseline(&mut self.backend, uid, resource)
+            };
+
+            if let Err(error) = result {
+                self.broker = snapshot.clone();
+                if let Err(rollback_error) =
+                    self.rollback_session_appops(&snapshot, uid, &changed, now_monotonic_ns)
+                {
+                    return Err(RuntimeError::BackendRollback(rollback_error));
                 }
-                (true, false) => {
-                    restore_foreground_baseline(&mut self.backend, uid, resource)
-                        .map_err(RuntimeError::Backend)?;
-                }
-                _ => {}
+                return Err(RuntimeError::Backend(error));
+            }
+
+            changed.push(resource);
+        }
+
+        Ok(())
+    }
+
+    fn rollback_session_appops(
+        &mut self,
+        snapshot: &CapabilityBroker,
+        uid: u32,
+        resources: &[Resource],
+        now_monotonic_ns: u64,
+    ) -> Result<(), B::Error> {
+        for &resource in resources {
+            if snapshot.has_active(uid, resource, now_monotonic_ns) {
+                enable_background_override(&mut self.backend, uid, resource)?;
+            } else {
+                restore_foreground_baseline(&mut self.backend, uid, resource)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn rollback_expiry_appops(
+        &mut self,
+        snapshot: &CapabilityBroker,
+        resources: &[(u32, Resource)],
+        now_monotonic_ns: u64,
+    ) -> Result<(), B::Error> {
+        for &(uid, resource) in resources {
+            if snapshot.has_active(uid, resource, now_monotonic_ns) {
+                enable_background_override(&mut self.backend, uid, resource)?;
+            } else {
+                restore_foreground_baseline(&mut self.backend, uid, resource)?;
             }
         }
         Ok(())
@@ -152,23 +238,27 @@ mod tests {
     #[derive(Debug, Default)]
     struct FakeBackend {
         changes: Vec<AppOpChange>,
+        fail_after: Option<usize>,
     }
 
     impl AppOpsBackend for FakeBackend {
-        type Error = ();
+        type Error = &'static str;
 
         fn set_mode(&mut self, change: AppOpChange) -> Result<(), Self::Error> {
+            if self.fail_after == Some(self.changes.len()) {
+                return Err("injected backend failure");
+            }
             self.changes.push(change);
             Ok(())
         }
     }
 
     #[test]
-    fn third_party_install_applies_foreground_baseline() {
+    fn bootstrap_uid_applies_foreground_baseline() {
         let mut runtime = M1Runtime::new(FakeBackend::default());
         let effects = runtime
-            .handle_event(SignalEvent::PackageAdded {
-                uid: 20001,
+            .handle_event(SignalEvent::BootstrapUid {
+                uid: 20000,
                 third_party: true,
                 monotonic_ns: 1,
             })
@@ -176,7 +266,7 @@ mod tests {
 
         assert_eq!(
             effects,
-            vec![RuntimeEffect::ThirdPartyBaselineApplied { uid: 20001 }]
+            vec![RuntimeEffect::ThirdPartyBaselineApplied { uid: 20000 }]
         );
         assert_eq!(runtime.backend().changes.len(), 4);
         assert!(runtime
@@ -187,59 +277,22 @@ mod tests {
     }
 
     #[test]
-    fn navigation_composite_enables_location_override() {
+    fn navigation_composite_enables_and_disables_location_override() {
         let mut runtime = M1Runtime::new(FakeBackend::default());
 
-        runtime
-            .handle_event(SignalEvent::UidImportanceChanged {
-                uid: 42,
-                importance: UidImportance::Foreground,
-                monotonic_ns: 1,
-            })
-            .unwrap();
-        runtime
-            .handle_event(SignalEvent::ForegroundServiceTypesChanged {
-                uid: 42,
-                types: FgsTypes::LOCATION,
-                monotonic_ns: 2,
-            })
-            .unwrap();
-        let effects = runtime
-            .handle_event(SignalEvent::AppOpActiveChanged {
-                uid: 42,
-                op: ActiveOp::Location,
-                active: true,
-                monotonic_ns: 3,
-            })
-            .unwrap();
-
-        assert!(effects.contains(&RuntimeEffect::TrustedSessionApplied(
-            TrustedSignal::NavigationStarted { uid: 42 }
-        )));
-        assert!(runtime.broker().has_active(42, Resource::Location, 4));
-        assert!(runtime
-            .backend()
-            .changes
-            .iter()
-            .any(|change| change.uid == 42 && change.mode == AppOpMode::Allowed));
-    }
-
-    #[test]
-    fn navigation_stop_restores_location_foreground_mode() {
-        let mut runtime = M1Runtime::new(FakeBackend::default());
         for event in [
             SignalEvent::UidImportanceChanged {
-                uid: 43,
+                uid: 42,
                 importance: UidImportance::Foreground,
                 monotonic_ns: 1,
             },
             SignalEvent::ForegroundServiceTypesChanged {
-                uid: 43,
+                uid: 42,
                 types: FgsTypes::LOCATION,
                 monotonic_ns: 2,
             },
             SignalEvent::AppOpActiveChanged {
-                uid: 43,
+                uid: 42,
                 op: ActiveOp::Location,
                 active: true,
                 monotonic_ns: 3,
@@ -248,17 +301,81 @@ mod tests {
             runtime.handle_event(event).unwrap();
         }
 
-        runtime.backend.changes.clear();
+        assert!(runtime.broker().has_active(42, Resource::Location, 4));
+        assert!(runtime
+            .backend()
+            .changes
+            .iter()
+            .rev()
+            .take(2)
+            .all(|change| change.mode == AppOpMode::Allowed));
+
         runtime
             .handle_event(SignalEvent::AppOpActiveChanged {
-                uid: 43,
+                uid: 42,
                 op: ActiveOp::Location,
                 active: false,
-                monotonic_ns: 4,
+                monotonic_ns: 5,
             })
             .unwrap();
 
-        assert!(!runtime.broker().has_active(43, Resource::Location, 5));
+        assert!(!runtime.broker().has_active(42, Resource::Location, 6));
+        assert!(runtime
+            .backend()
+            .changes
+            .iter()
+            .rev()
+            .take(2)
+            .all(|change| change.mode == AppOpMode::Foreground));
+    }
+
+    #[test]
+    fn session_backend_failure_rolls_back_broker() {
+        let backend = FakeBackend {
+            changes: Vec::new(),
+            fail_after: Some(0),
+        };
+        let mut runtime = M1Runtime::new(backend);
+
+        runtime
+            .handle_event(SignalEvent::UidImportanceChanged {
+                uid: 51,
+                importance: UidImportance::Foreground,
+                monotonic_ns: 1,
+            })
+            .unwrap();
+        runtime
+            .handle_event(SignalEvent::ForegroundServiceTypesChanged {
+                uid: 51,
+                types: FgsTypes::LOCATION,
+                monotonic_ns: 2,
+            })
+            .unwrap();
+
+        let result = runtime.handle_event(SignalEvent::AppOpActiveChanged {
+            uid: 51,
+            op: ActiveOp::Location,
+            active: true,
+            monotonic_ns: 3,
+        });
+
+        assert!(matches!(result, Err(RuntimeError::Backend(_))));
+        assert!(!runtime.broker().has_active(51, Resource::Location, 4));
+        assert!(!runtime.broker().has_active(51, Resource::NetworkEgress, 4));
+    }
+
+    #[test]
+    fn expiry_restores_foreground_mode_once_per_resource() {
+        let mut broker = CapabilityBroker::default();
+        apply_trusted_signal(&mut broker, TrustedSignal::NavigationStarted { uid: 9 }, 0).unwrap();
+
+        let mut runtime =
+            M1Runtime::with_state(FakeBackend::default(), SignalState::default(), broker);
+
+        assert_eq!(runtime.expire(120_000_000_000).unwrap(), 2);
+        assert!(!runtime
+            .broker()
+            .has_active(9, Resource::Location, 120_000_000_000));
         assert_eq!(runtime.backend().changes.len(), 2);
         assert!(runtime
             .backend()

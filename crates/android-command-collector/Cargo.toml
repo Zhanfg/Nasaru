@@ -1,0 +1,20 @@
+[package]
+name = "nasaru-android-command-collector"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Event-driven native Android collector for Nasaru"
+
+[dependencies]
+libc = "0.2"
+nasaru-local-transport = { path = "../local-transport" }
+nasaru-signal-state = { path = "../signal-state" }
+nasaru-signal-wire = { path = "../signal-wire" }
+
+[lib]
+name = "nasaru_android_command_collector"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nasaru-collector"
+path = "src/main.rs"
