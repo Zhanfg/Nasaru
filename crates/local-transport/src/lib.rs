@@ -106,21 +106,13 @@ impl SeqPacketListener {
         Self::bind_with_backlog(path, DEFAULT_BACKLOG)
     }
 
-    pub fn bind_with_backlog(
-        path: impl AsRef<Path>,
-        backlog: i32,
-    ) -> Result<Self, TransportError> {
+    pub fn bind_with_backlog(path: impl AsRef<Path>, backlog: i32) -> Result<Self, TransportError> {
         let path = path.as_ref();
         prepare_socket_path(path)?;
         let address = unix_address(path)?;
 
-        let raw_fd = unsafe {
-            libc::socket(
-                libc::AF_UNIX,
-                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
-                0,
-            )
-        };
+        let raw_fd =
+            unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
         if raw_fd < 0 {
             return Err(io::Error::last_os_error().into());
         }
@@ -433,9 +425,7 @@ mod tests {
         let uid = unsafe { libc::geteuid() };
 
         let server = thread::spawn(move || {
-            let connection = listener
-                .accept(&PeerPolicy::new().allow_uid(uid))
-                .unwrap();
+            let connection = listener.accept(&PeerPolicy::new().allow_uid(uid)).unwrap();
             let packet = connection.recv_packet(128).unwrap().unwrap();
             assert_eq!(packet, b"riksu-event");
             connection.send_packet(b"ack").unwrap();

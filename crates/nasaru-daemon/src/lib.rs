@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use nasaru_android_shell_backend::ShellAppOpsBackend;
-use nasaru_local_transport::{
-    PeerPolicy, SeqPacketListener, TransportError, DEFAULT_MAX_PACKET,
-};
+use nasaru_local_transport::{PeerPolicy, SeqPacketListener, TransportError, DEFAULT_MAX_PACKET};
 use nasaru_riksu::{RiksuError, RiksuHeader};
 use nasaru_runtime::{M1Runtime, RuntimeEffect, RuntimeError};
 use nasaru_signal_wire::{decode_signal_event, WireError};
