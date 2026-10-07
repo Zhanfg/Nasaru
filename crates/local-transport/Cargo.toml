@@ -1,0 +1,9 @@
+[package]
+name = "nasaru-local-transport"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Authenticated local SOCK_SEQPACKET transport for Nasaru Riksu"
+
+[dependencies]
+libc = "0.2"
