@@ -107,10 +107,7 @@ mod tests {
         });
 
         assert_eq!(spec.program, PathBuf::from("/system/bin/cmd"));
-        assert_eq!(
-            spec.args,
-            vec!["appops", "set", "10234", "CAMERA", "4"]
-        );
+        assert_eq!(spec.args, vec!["appops", "set", "10234", "CAMERA", "4"]);
     }
 
     #[test]
