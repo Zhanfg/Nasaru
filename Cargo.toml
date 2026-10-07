@@ -6,6 +6,7 @@ members = [
     "crates/capability",
     "crates/application-guard",
     "crates/android-bridge",
+    "crates/android-shell-backend",
     "crates/micro",
     "crates/nasaru-daemon",
 ]

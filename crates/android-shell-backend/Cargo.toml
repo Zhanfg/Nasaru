@@ -1,0 +1,9 @@
+[package]
+name = "nasaru-android-shell-backend"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Low-frequency Android AppOps compatibility backend for Nasaru"
+
+[dependencies]
+nasaru-android-bridge = { path = "../android-bridge" }
