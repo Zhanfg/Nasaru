@@ -1,0 +1,12 @@
+[package]
+name = "nasaru-m1-engine"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Transactional M1 orchestration for Nasaru Application Guard"
+
+[dependencies]
+nasaru-android-bridge = { path = "../android-bridge" }
+nasaru-capability = { path = "../capability" }
+nasaru-policy = { path = "../policy" }
+nasaru-signal-state = { path = "../signal-state" }

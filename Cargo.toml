@@ -8,6 +8,7 @@ members = [
     "crates/android-bridge",
     "crates/android-shell-backend",
     "crates/signal-state",
+    "crates/m1-engine",
     "crates/signal-wire",
     "crates/local-transport",
     "crates/runtime",

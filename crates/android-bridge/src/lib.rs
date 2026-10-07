@@ -69,6 +69,9 @@ pub fn reconcile_expired<B: AppOpsBackend>(
     Ok(expired_count)
 }
 
+pub const APP_GUARD_RESOURCES: [Resource; 3] =
+    [Resource::Camera, Resource::Microphone, Resource::Location];
+
 pub fn foreground_baseline(resource: Resource) -> Option<&'static [AppOpClass]> {
     const CAMERA: &[AppOpClass] = &[AppOpClass::Camera];
     const MICROPHONE: &[AppOpClass] = &[AppOpClass::RecordAudio];
@@ -153,6 +156,16 @@ pub fn apply_trusted_signal(
             Ok(())
         }
     }
+}
+
+pub fn apply_uid_foreground_baseline<B: AppOpsBackend>(
+    backend: &mut B,
+    uid: u32,
+) -> Result<(), B::Error> {
+    for resource in APP_GUARD_RESOURCES {
+        restore_foreground_baseline(backend, uid, resource)?;
+    }
+    Ok(())
 }
 
 pub fn enable_background_override<B: AppOpsBackend>(

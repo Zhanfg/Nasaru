@@ -88,6 +88,11 @@ pub enum SignalEvent {
         present: bool,
         monotonic_ns: u64,
     },
+    BootstrapUid {
+        uid: u32,
+        third_party: bool,
+        monotonic_ns: u64,
+    },
     PackageAdded {
         uid: u32,
         third_party: bool,
@@ -107,6 +112,7 @@ impl SignalEvent {
             | Self::ForegroundServiceTypesChanged { uid, .. }
             | Self::AppOpActiveChanged { uid, .. }
             | Self::CompanionPresenceChanged { uid, .. }
+            | Self::BootstrapUid { uid, .. }
             | Self::PackageAdded { uid, .. }
             | Self::PackageRemoved { uid, .. } => uid,
         }
@@ -118,6 +124,7 @@ impl SignalEvent {
             | Self::ForegroundServiceTypesChanged { monotonic_ns, .. }
             | Self::AppOpActiveChanged { monotonic_ns, .. }
             | Self::CompanionPresenceChanged { monotonic_ns, .. }
+            | Self::BootstrapUid { monotonic_ns, .. }
             | Self::PackageAdded { monotonic_ns, .. }
             | Self::PackageRemoved { monotonic_ns, .. } => monotonic_ns,
         }
@@ -225,7 +232,8 @@ impl SignalState {
             SignalEvent::CompanionPresenceChanged { present, .. } => {
                 state.companion_present = present;
             }
-            SignalEvent::PackageAdded { third_party, .. } => {
+            SignalEvent::BootstrapUid { third_party, .. }
+            | SignalEvent::PackageAdded { third_party, .. } => {
                 if third_party {
                     effects.push(SignalEffect::ApplyThirdPartyBaseline { uid });
                 }
@@ -507,6 +515,18 @@ mod tests {
             effect,
             SignalEffect::TrustedSession(TrustedSignal::VideoSessionStarted { uid: 13 })
         )));
+    }
+
+    #[test]
+    fn bootstrap_existing_third_party_uid_requests_baseline() {
+        let mut state = SignalState::default();
+        let effects = state.ingest(SignalEvent::BootstrapUid {
+            uid: 19999,
+            third_party: true,
+            monotonic_ns: 1,
+        });
+        assert!(effects.contains(&SignalEffect::ApplyThirdPartyBaseline { uid: 19999 }));
+        assert!(state.contains_uid(19999));
     }
 
     #[test]

@@ -63,7 +63,7 @@ pub enum BrokerError {
     CapacityReached,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CapabilityBroker {
     leases: Vec<CapabilityLease>,
     max_leases: usize,
