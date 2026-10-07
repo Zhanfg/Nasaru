@@ -194,13 +194,8 @@ pub struct SeqPacketConnection {
 impl SeqPacketConnection {
     pub fn connect(path: impl AsRef<Path>) -> Result<Self, TransportError> {
         let address = unix_address(path.as_ref())?;
-        let raw_fd = unsafe {
-            libc::socket(
-                libc::AF_UNIX,
-                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
-                0,
-            )
-        };
+        let raw_fd =
+            unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
         if raw_fd < 0 {
             return Err(io::Error::last_os_error().into());
         }
