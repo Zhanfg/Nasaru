@@ -1,0 +1,12 @@
+Nasaru is a multi-license repository.
+
+Userspace source code, training code and reference implementations:
+  GPL-3.0-or-later
+
+Kernel and eBPF source code:
+  GPL-2.0-only
+
+Riksu specifications and project documentation:
+  CC-BY-SA-4.0
+
+See LICENSES/README.md and the SPDX identifier in each source/document.
