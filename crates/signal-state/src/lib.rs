@@ -258,9 +258,8 @@ fn recompute_sessions(uid: u32, now_ns: u64, state: &mut UidState) -> Vec<Signal
     let mut out = Vec::new();
     let recent_user = state.recent_user_context(now_ns);
 
-    let navigation = state.fgs_types.contains(FgsTypes::LOCATION)
-        && state.ops.location
-        && recent_user;
+    let navigation =
+        state.fgs_types.contains(FgsTypes::LOCATION) && state.ops.location && recent_user;
     transition(
         &mut state.navigation_session,
         navigation,
@@ -320,7 +319,11 @@ fn transition(
         return;
     }
     *current = next;
-    out.push(SignalEffect::TrustedSession(if next { start } else { stop }));
+    out.push(SignalEffect::TrustedSession(if next {
+        start
+    } else {
+        stop
+    }));
 }
 
 #[cfg(test)]
