@@ -117,7 +117,10 @@ pub fn decode_tlvs(mut input: &[u8]) -> Result<Vec<Tlv>, RiksuError> {
         if input.len() < len {
             return Err(RiksuError::Truncated);
         }
-        out.push(Tlv { kind, value: input[..len].to_vec() });
+        out.push(Tlv {
+            kind,
+            value: input[..len].to_vec(),
+        });
         input = &input[len..];
     }
     Ok(out)
@@ -179,8 +182,14 @@ mod tests {
     #[test]
     fn tlv_unknown_fields_remain_skippable() {
         let source = vec![
-            Tlv { kind: 1, value: vec![1, 2, 3, 4] },
-            Tlv { kind: 65000, value: vec![9, 8, 7] },
+            Tlv {
+                kind: 1,
+                value: vec![1, 2, 3, 4],
+            },
+            Tlv {
+                kind: 65000,
+                value: vec![9, 8, 7],
+            },
         ];
         let mut wire = Vec::new();
         for item in &source {

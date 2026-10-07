@@ -39,7 +39,10 @@ impl MicroModel {
         for pair in input[MICRO_HEADER_LEN..].chunks_exact(2) {
             weights_q12.push(i16::from_le_bytes([pair[0], pair[1]]));
         }
-        Ok(Self { schema_version, weights_q12 })
+        Ok(Self {
+            schema_version,
+            weights_q12,
+        })
     }
 
     pub fn score_sparse(&self, active_features: &[usize]) -> Result<i32, MicroError> {

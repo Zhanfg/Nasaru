@@ -90,7 +90,10 @@ mod tests {
 
     #[test]
     fn legitimate_existing_background_transfer_survives() {
-        let ctx = Context { existing_handle_or_flow: true, ..Context::default() };
+        let ctx = Context {
+            existing_handle_or_flow: true,
+            ..Context::default()
+        };
         assert_eq!(
             decide(Resource::SensitiveFile, ctx),
             Decision::Allow(Reason::ExistingHandleOrFlow)
@@ -107,7 +110,10 @@ mod tests {
 
     #[test]
     fn recent_blocked_sensitive_read_hardens_new_egress() {
-        let ctx = Context { recent_blocked_sensitive_read: true, ..Context::default() };
+        let ctx = Context {
+            recent_blocked_sensitive_read: true,
+            ..Context::default()
+        };
         assert_eq!(
             decide(Resource::NetworkEgress, ctx),
             Decision::Deny(Reason::RecentBlockedSensitiveReadBeforeEgress)
