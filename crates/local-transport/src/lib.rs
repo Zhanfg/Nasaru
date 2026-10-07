@@ -94,11 +94,16 @@ impl From<io::Error> for TransportError {
 }
 
 #[derive(Debug)]
-pub struct SeqPacketListener {
-    fd: OwnedFd,
+struct SocketCleanup {
     path: PathBuf,
     socket_dev: u64,
     socket_ino: u64,
+}
+
+#[derive(Debug)]
+pub struct SeqPacketListener {
+    fd: OwnedFd,
+    cleanup: Option<SocketCleanup>,
 }
 
 impl SeqPacketListener {
@@ -111,12 +116,7 @@ impl SeqPacketListener {
         prepare_socket_path(path)?;
         let address = unix_address(path)?;
 
-        let raw_fd =
-            unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
-        if raw_fd < 0 {
-            return Err(io::Error::last_os_error().into());
-        }
-        let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+        let fd = create_seqpacket_socket()?;
 
         let bind_result = unsafe {
             libc::bind(
@@ -138,10 +138,38 @@ impl SeqPacketListener {
         let metadata = fs::symlink_metadata(path)?;
         Ok(Self {
             fd,
-            path: path.to_path_buf(),
-            socket_dev: metadata.dev(),
-            socket_ino: metadata.ino(),
+            cleanup: Some(SocketCleanup {
+                path: path.to_path_buf(),
+                socket_dev: metadata.dev(),
+                socket_ino: metadata.ino(),
+            }),
         })
+    }
+
+    pub fn bind_abstract(name: &[u8]) -> Result<Self, TransportError> {
+        Self::bind_abstract_with_backlog(name, DEFAULT_BACKLOG)
+    }
+
+    pub fn bind_abstract_with_backlog(name: &[u8], backlog: i32) -> Result<Self, TransportError> {
+        let address = abstract_address(name)?;
+        let fd = create_seqpacket_socket()?;
+
+        let bind_result = unsafe {
+            libc::bind(
+                fd.as_raw_fd(),
+                &address.addr as *const libc::sockaddr_un as *const libc::sockaddr,
+                address.len,
+            )
+        };
+        if bind_result != 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+
+        if unsafe { libc::listen(fd.as_raw_fd(), backlog) } != 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+
+        Ok(Self { fd, cleanup: None })
     }
 
     pub fn accept(&self, policy: &PeerPolicy) -> Result<SeqPacketConnection, TransportError> {
@@ -166,21 +194,24 @@ impl SeqPacketListener {
         Ok(SeqPacketConnection { fd, peer })
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn path(&self) -> Option<&Path> {
+        self.cleanup.as_ref().map(|cleanup| cleanup.path.as_path())
     }
 }
 
 impl Drop for SeqPacketListener {
     fn drop(&mut self) {
-        let Ok(metadata) = fs::symlink_metadata(&self.path) else {
+        let Some(cleanup) = &self.cleanup else {
+            return;
+        };
+        let Ok(metadata) = fs::symlink_metadata(&cleanup.path) else {
             return;
         };
         if metadata.file_type().is_socket()
-            && metadata.dev() == self.socket_dev
-            && metadata.ino() == self.socket_ino
+            && metadata.dev() == cleanup.socket_dev
+            && metadata.ino() == cleanup.socket_ino
         {
-            let _ = fs::remove_file(&self.path);
+            let _ = fs::remove_file(&cleanup.path);
         }
     }
 }
@@ -194,12 +225,26 @@ pub struct SeqPacketConnection {
 impl SeqPacketConnection {
     pub fn connect(path: impl AsRef<Path>) -> Result<Self, TransportError> {
         let address = unix_address(path.as_ref())?;
-        let raw_fd =
-            unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
-        if raw_fd < 0 {
+        let fd = create_seqpacket_socket()?;
+
+        let result = unsafe {
+            libc::connect(
+                fd.as_raw_fd(),
+                &address.addr as *const libc::sockaddr_un as *const libc::sockaddr,
+                address.len,
+            )
+        };
+        if result != 0 {
             return Err(io::Error::last_os_error().into());
         }
-        let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+
+        let peer = peer_identity(fd.as_raw_fd())?;
+        Ok(Self { fd, peer })
+    }
+
+    pub fn connect_abstract(name: &[u8]) -> Result<Self, TransportError> {
+        let address = abstract_address(name)?;
+        let fd = create_seqpacket_socket()?;
 
         let result = unsafe {
             libc::connect(
@@ -274,6 +319,15 @@ struct UnixAddress {
     len: libc::socklen_t,
 }
 
+fn create_seqpacket_socket() -> Result<OwnedFd, TransportError> {
+    let raw_fd =
+        unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
+    if raw_fd < 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    Ok(unsafe { OwnedFd::from_raw_fd(raw_fd) })
+}
+
 fn unix_address(path: &Path) -> Result<UnixAddress, TransportError> {
     let bytes = path.as_os_str().as_bytes();
     let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
@@ -287,6 +341,29 @@ fn unix_address(path: &Path) -> Result<UnixAddress, TransportError> {
     }
 
     let len = offset_of!(libc::sockaddr_un, sun_path) + bytes.len() + 1;
+    Ok(UnixAddress {
+        addr,
+        len: len as libc::socklen_t,
+    })
+}
+
+fn abstract_address(name: &[u8]) -> Result<UnixAddress, TransportError> {
+    if name.is_empty() {
+        return Err(TransportError::PathTooLong);
+    }
+
+    let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    if name.len() + 1 > addr.sun_path.len() {
+        return Err(TransportError::PathTooLong);
+    }
+
+    addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    addr.sun_path[0] = 0;
+    for (dst, src) in addr.sun_path[1..].iter_mut().zip(name.iter().copied()) {
+        *dst = src as libc::c_char;
+    }
+
+    let len = offset_of!(libc::sockaddr_un, sun_path) + 1 + name.len();
     Ok(UnixAddress {
         addr,
         len: len as libc::socklen_t,
@@ -453,6 +530,25 @@ mod tests {
         assert_eq!(client.recv_packet(128).unwrap().unwrap(), b"ack");
         server.join().unwrap();
         fs::remove_dir(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn abstract_seqpacket_matches_android_local_socket_namespace() {
+        let sequence = NEXT_PATH.fetch_add(1, Ordering::Relaxed);
+        let name = format!("nasaru-test-{}-{sequence}", std::process::id()).into_bytes();
+        let listener = SeqPacketListener::bind_abstract(&name).unwrap();
+        assert!(listener.path().is_none());
+        let uid = unsafe { libc::geteuid() };
+
+        let server = thread::spawn(move || {
+            let connection = listener.accept(&PeerPolicy::new().allow_uid(uid)).unwrap();
+            let packet = connection.recv_packet(64).unwrap().unwrap();
+            assert_eq!(packet, b"abstract-riksu");
+        });
+
+        let client = SeqPacketConnection::connect_abstract(&name).unwrap();
+        client.send_packet(b"abstract-riksu").unwrap();
+        server.join().unwrap();
     }
 
     #[test]
