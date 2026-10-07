@@ -332,10 +332,16 @@ mod tests {
         broker.grant(second, 0).unwrap();
 
         let mut backend = FakeAppOps::default();
-        assert_eq!(reconcile_expired(&mut broker, &mut backend, 1_000_000_000).unwrap(), 1);
+        assert_eq!(
+            reconcile_expired(&mut broker, &mut backend, 1_000_000_000).unwrap(),
+            1
+        );
         assert!(backend.changes.is_empty());
 
-        assert_eq!(reconcile_expired(&mut broker, &mut backend, 2_000_000_000).unwrap(), 1);
+        assert_eq!(
+            reconcile_expired(&mut broker, &mut backend, 2_000_000_000).unwrap(),
+            1
+        );
         assert_eq!(backend.changes.len(), 2);
         assert!(backend
             .changes
