@@ -230,7 +230,7 @@ fn push_u32(out: &mut Vec<Tlv>, kind: u16, value: u32) {
     });
 }
 
-fn one<'a>(tlvs: &'a [Tlv], kind: u16) -> Result<&'a [u8], WireError> {
+fn one(tlvs: &[Tlv], kind: u16) -> Result<&[u8], WireError> {
     let mut matches = tlvs.iter().filter(|tlv| tlv.kind == kind);
     let value = matches
         .next()
