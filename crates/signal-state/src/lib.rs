@@ -286,7 +286,7 @@ fn recompute_sessions(uid: u32, now_ns: u64, state: &mut UidState) -> Vec<Signal
     transition(
         &mut state.voice_session,
         voice,
-        TrustedSignal::VoiceSessionStarted { uid, video: false },
+        TrustedSignal::VoiceSessionStarted { uid },
         TrustedSignal::VoiceSessionStopped { uid },
         &mut out,
     );
@@ -296,11 +296,11 @@ fn recompute_sessions(uid: u32, now_ns: u64, state: &mut UidState) -> Vec<Signal
         state.video_session = video;
         if video {
             out.push(SignalEffect::TrustedSession(
-                TrustedSignal::VoiceSessionStarted { uid, video: true },
+                TrustedSignal::VideoSessionStarted { uid },
             ));
-        } else if voice {
+        } else {
             out.push(SignalEffect::TrustedSession(
-                TrustedSignal::VoiceSessionStarted { uid, video: false },
+                TrustedSignal::VideoSessionStopped { uid },
             ));
         }
     }
@@ -501,10 +501,7 @@ mod tests {
         );
         assert!(effects.iter().any(|effect| matches!(
             effect,
-            SignalEffect::TrustedSession(TrustedSignal::VoiceSessionStarted {
-                uid: 13,
-                video: true
-            })
+            SignalEffect::TrustedSession(TrustedSignal::VideoSessionStarted { uid: 13 })
         )));
     }
 

@@ -16,8 +16,10 @@ pub enum TrustedSignal {
     NavigationStopped { uid: u32 },
     CompanionHealthSyncStarted { uid: u32 },
     CompanionHealthSyncStopped { uid: u32 },
-    VoiceSessionStarted { uid: u32, video: bool },
+    VoiceSessionStarted { uid: u32 },
     VoiceSessionStopped { uid: u32 },
+    VideoSessionStarted { uid: u32 },
+    VideoSessionStopped { uid: u32 },
     FileTransferStarted { uid: u32 },
     FileTransferStopped { uid: u32 },
 }
@@ -95,8 +97,8 @@ pub fn apply_trusted_signal(
             now_monotonic_ns,
         ),
         TrustedSignal::NavigationStopped { uid } => {
-            broker.revoke(uid, Resource::Location);
-            broker.revoke(uid, Resource::NetworkEgress);
+            broker.revoke_scoped(uid, Resource::Location, CapabilityScope::Navigation);
+            broker.revoke_scoped(uid, Resource::NetworkEgress, CapabilityScope::Navigation);
             Ok(())
         }
         TrustedSignal::CompanionHealthSyncStarted { uid } => grant_many(
@@ -108,33 +110,33 @@ pub fn apply_trusted_signal(
             now_monotonic_ns,
         ),
         TrustedSignal::CompanionHealthSyncStopped { uid } => {
-            broker.revoke(uid, Resource::BluetoothScan);
-            broker.revoke(uid, Resource::NetworkEgress);
+            broker.revoke_scoped(uid, Resource::BluetoothScan, CapabilityScope::HealthSync);
+            broker.revoke_scoped(uid, Resource::NetworkEgress, CapabilityScope::HealthSync);
             Ok(())
         }
-        TrustedSignal::VoiceSessionStarted { uid, video } => {
-            let resources: &[Resource] = if video {
-                &[
-                    Resource::Microphone,
-                    Resource::Camera,
-                    Resource::NetworkEgress,
-                ]
-            } else {
-                &[Resource::Microphone, Resource::NetworkEgress]
-            };
-            grant_many(
-                broker,
-                uid,
-                CapabilityScope::VoiceSession,
-                VOICE_TTL_MS,
-                resources,
-                now_monotonic_ns,
-            )
-        }
+        TrustedSignal::VoiceSessionStarted { uid } => grant_many(
+            broker,
+            uid,
+            CapabilityScope::VoiceSession,
+            VOICE_TTL_MS,
+            &[Resource::Microphone, Resource::NetworkEgress],
+            now_monotonic_ns,
+        ),
         TrustedSignal::VoiceSessionStopped { uid } => {
-            broker.revoke(uid, Resource::Microphone);
-            broker.revoke(uid, Resource::Camera);
-            broker.revoke(uid, Resource::NetworkEgress);
+            broker.revoke_scoped(uid, Resource::Microphone, CapabilityScope::VoiceSession);
+            broker.revoke_scoped(uid, Resource::NetworkEgress, CapabilityScope::VoiceSession);
+            Ok(())
+        }
+        TrustedSignal::VideoSessionStarted { uid } => grant_many(
+            broker,
+            uid,
+            CapabilityScope::CameraSession,
+            VOICE_TTL_MS,
+            &[Resource::Camera],
+            now_monotonic_ns,
+        ),
+        TrustedSignal::VideoSessionStopped { uid } => {
+            broker.revoke_scoped(uid, Resource::Camera, CapabilityScope::CameraSession);
             Ok(())
         }
         TrustedSignal::FileTransferStarted { uid } => grant_many(
@@ -146,8 +148,8 @@ pub fn apply_trusted_signal(
             now_monotonic_ns,
         ),
         TrustedSignal::FileTransferStopped { uid } => {
-            broker.revoke(uid, Resource::SensitiveFile);
-            broker.revoke(uid, Resource::NetworkEgress);
+            broker.revoke_scoped(uid, Resource::SensitiveFile, CapabilityScope::FileTransfer);
+            broker.revoke_scoped(uid, Resource::NetworkEgress, CapabilityScope::FileTransfer);
             Ok(())
         }
     }
@@ -269,16 +271,75 @@ mod tests {
         let mut broker = CapabilityBroker::default();
         apply_trusted_signal(
             &mut broker,
-            TrustedSignal::VoiceSessionStarted {
-                uid: 8,
-                video: true,
-            },
+            TrustedSignal::VoiceSessionStarted { uid: 8 },
+            0,
+        )
+        .unwrap();
+
+        apply_trusted_signal(
+            &mut broker,
+            TrustedSignal::VideoSessionStarted { uid: 8 },
             0,
         )
         .unwrap();
 
         assert!(broker.has_active(8, Resource::Camera, 1));
         assert!(broker.has_active(8, Resource::Microphone, 1));
+    }
+
+    #[test]
+    fn stopping_navigation_preserves_voice_network_lease() {
+        let mut broker = CapabilityBroker::default();
+        apply_trusted_signal(
+            &mut broker,
+            TrustedSignal::NavigationStarted { uid: 21 },
+            0,
+        )
+        .unwrap();
+        apply_trusted_signal(
+            &mut broker,
+            TrustedSignal::VoiceSessionStarted { uid: 21 },
+            0,
+        )
+        .unwrap();
+
+        apply_trusted_signal(
+            &mut broker,
+            TrustedSignal::NavigationStopped { uid: 21 },
+            1,
+        )
+        .unwrap();
+
+        assert!(broker.has_active(21, Resource::NetworkEgress, 2));
+        assert!(!broker.has_active(21, Resource::Location, 2));
+        assert!(broker.has_active(21, Resource::Microphone, 2));
+    }
+
+    #[test]
+    fn video_stop_revokes_camera_without_ending_voice() {
+        let mut broker = CapabilityBroker::default();
+        apply_trusted_signal(
+            &mut broker,
+            TrustedSignal::VoiceSessionStarted { uid: 22 },
+            0,
+        )
+        .unwrap();
+        apply_trusted_signal(
+            &mut broker,
+            TrustedSignal::VideoSessionStarted { uid: 22 },
+            0,
+        )
+        .unwrap();
+        apply_trusted_signal(
+            &mut broker,
+            TrustedSignal::VideoSessionStopped { uid: 22 },
+            1,
+        )
+        .unwrap();
+
+        assert!(!broker.has_active(22, Resource::Camera, 2));
+        assert!(broker.has_active(22, Resource::Microphone, 2));
+        assert!(broker.has_active(22, Resource::NetworkEgress, 2));
     }
 
     #[test]

@@ -124,6 +124,18 @@ impl CapabilityBroker {
         self.remove_matching(|lease| lease.uid == uid && lease.resource == resource)
     }
 
+    pub fn revoke_scoped(
+        &mut self,
+        uid: u32,
+        resource: Resource,
+        scope: CapabilityScope,
+    ) -> usize {
+        self.remove_matching(|lease| {
+            lease.uid == uid && lease.resource == resource && lease.scope == scope
+        })
+        .len()
+    }
+
     pub fn revoke_uid(&mut self, uid: u32) -> usize {
         self.remove_matching(|lease| lease.uid == uid).len()
     }
@@ -226,6 +238,48 @@ mod tests {
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].resource, Resource::Location);
         assert!(broker.has_active(7, Resource::Camera, 1));
+    }
+
+    #[test]
+    fn scoped_revocation_preserves_other_session_on_same_resource() {
+        let mut broker = CapabilityBroker::default();
+        broker
+            .grant(
+                CapabilityLease {
+                    uid: 77,
+                    resource: Resource::NetworkEgress,
+                    scope: CapabilityScope::Navigation,
+                    origin: CapabilityOrigin::TrustedSystemSignal,
+                    issued_monotonic_ns: 0,
+                    ttl_ms: 10_000,
+                },
+                0,
+            )
+            .unwrap();
+        broker
+            .grant(
+                CapabilityLease {
+                    uid: 77,
+                    resource: Resource::NetworkEgress,
+                    scope: CapabilityScope::VoiceSession,
+                    origin: CapabilityOrigin::TrustedSystemSignal,
+                    issued_monotonic_ns: 0,
+                    ttl_ms: 10_000,
+                },
+                0,
+            )
+            .unwrap();
+
+        assert_eq!(
+            broker.revoke_scoped(
+                77,
+                Resource::NetworkEgress,
+                CapabilityScope::Navigation
+            ),
+            1
+        );
+        assert!(broker.has_active(77, Resource::NetworkEgress, 1));
+        assert_eq!(broker.len(), 1);
     }
 
     #[test]
