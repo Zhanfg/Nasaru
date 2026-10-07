@@ -118,15 +118,13 @@ pub fn parse_watch_uids_line(line: &str, now_ns: u64) -> Option<SignalEvent> {
 pub fn procstate_to_importance(state: &str) -> Option<UidImportance> {
     let normalized = state.trim();
     match normalized {
-        "PER" | "PERU" | "TOP" | "BTOP" | "P" | "PU" | "T" => {
-            Some(UidImportance::Foreground)
-        }
+        "PER" | "PERU" | "TOP" | "BTOP" | "P" | "PU" | "T" => Some(UidImportance::Foreground),
         "FGS" | "BFGS" | "SF" | "SB" => Some(UidImportance::ForegroundService),
         "IMPF" | "IMPB" | "IF" | "IB" => Some(UidImportance::Visible),
         "TRNB" | "BKUP" | "TPSL" | "BU" | "TS" => Some(UidImportance::Perceptible),
         "SVC" | "RCVR" | "S" | "R" => Some(UidImportance::Service),
-        "HVY" | "HOME" | "LAST" | "CAC" | "CACC" | "CRE" | "CEM" | "HO"
-        | "LA" | "CA" | "Ca" | "CE" => Some(UidImportance::Cached),
+        "HVY" | "HOME" | "LAST" | "CAC" | "CACC" | "CRE" | "CEM" | "HO" | "LA" | "CA" | "Ca"
+        | "CE" => Some(UidImportance::Cached),
         "N" => Some(UidImportance::Gone),
         _ => None,
     }
@@ -190,9 +188,9 @@ pub fn read_third_party_snapshot(paths: &CommandPaths) -> Result<BTreeSet<u32>, 
         return Err(CollectorError::CommandFailed(output.status.code()));
     }
 
-    Ok(parse_third_party_uid_snapshot(
-        &String::from_utf8_lossy(&output.stdout),
-    ))
+    Ok(parse_third_party_uid_snapshot(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 pub fn spawn_uid_watch(
@@ -280,8 +278,10 @@ impl PackageWatcher {
         }
         let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
 
-        let path = std::ffi::CString::new(directory.as_os_str().as_encoded_bytes())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "package path contains NUL"))?;
+        let path =
+            std::ffi::CString::new(directory.as_os_str().as_encoded_bytes()).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "package path contains NUL")
+            })?;
         let mask = libc::IN_CLOSE_WRITE
             | libc::IN_MOVED_TO
             | libc::IN_CREATE
@@ -313,9 +313,7 @@ impl PackageWatcher {
         let mut offset = 0usize;
         let count = count as usize;
         while offset + size_of::<libc::inotify_event>() <= count {
-            let event = unsafe {
-                &*(buffer.as_ptr().add(offset) as *const libc::inotify_event)
-            };
+            let event = unsafe { &*(buffer.as_ptr().add(offset) as *const libc::inotify_event) };
             let name_start = offset + size_of::<libc::inotify_event>();
             let name_end = name_start.saturating_add(event.len as usize);
             if name_end > count {
@@ -325,10 +323,7 @@ impl PackageWatcher {
             if event.len > 0 {
                 let name_bytes = &buffer[name_start..name_end];
                 if let Ok(name) = CStr::from_bytes_until_nul(name_bytes) {
-                    if matches!(
-                        name.to_bytes(),
-                        b"packages.xml" | b"packages.list"
-                    ) {
+                    if matches!(name.to_bytes(), b"packages.xml" | b"packages.list") {
                         return Ok(true);
                     }
                 }

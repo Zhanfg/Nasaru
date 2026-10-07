@@ -39,11 +39,7 @@ impl<B: AppOpsBackend> M1Runtime<B> {
         }
     }
 
-    pub fn with_state(
-        backend: B,
-        signals: SignalState,
-        broker: CapabilityBroker,
-    ) -> Self {
+    pub fn with_state(backend: B, signals: SignalState, broker: CapabilityBroker) -> Self {
         Self {
             signals,
             broker,
@@ -80,10 +76,7 @@ impl<B: AppOpsBackend> M1Runtime<B> {
         Ok(out)
     }
 
-    pub fn expire(
-        &mut self,
-        now_monotonic_ns: u64,
-    ) -> Result<usize, RuntimeError<B::Error>> {
+    pub fn expire(&mut self, now_monotonic_ns: u64) -> Result<usize, RuntimeError<B::Error>> {
         let snapshot = self.broker.clone();
         let expired = self.broker.expire_collect(now_monotonic_ns);
         let expired_count = expired.len();
@@ -374,18 +367,10 @@ mod tests {
     #[test]
     fn expiry_restores_foreground_mode_once_per_resource() {
         let mut broker = CapabilityBroker::default();
-        apply_trusted_signal(
-            &mut broker,
-            TrustedSignal::NavigationStarted { uid: 9 },
-            0,
-        )
-        .unwrap();
+        apply_trusted_signal(&mut broker, TrustedSignal::NavigationStarted { uid: 9 }, 0).unwrap();
 
-        let mut runtime = M1Runtime::with_state(
-            FakeBackend::default(),
-            SignalState::default(),
-            broker,
-        );
+        let mut runtime =
+            M1Runtime::with_state(FakeBackend::default(), SignalState::default(), broker);
 
         assert_eq!(runtime.expire(120_000_000_000).unwrap(), 2);
         assert!(!runtime
