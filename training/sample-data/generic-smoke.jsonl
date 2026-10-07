@@ -1,0 +1,12 @@
+{"features":{"foreground":1,"resource.camera":1,"user_initiated":1},"label":1}
+{"features":{"foreground":1,"resource.microphone":1,"user_initiated":1},"label":1}
+{"features":{"resource.camera":1},"label":0}
+{"features":{"resource.microphone":1},"label":0}
+{"features":{"resource.location":1,"navigation_active":1,"active_capability":1},"label":1}
+{"features":{"resource.location":1},"label":0}
+{"features":{"resource.network":1,"companion_connected":1,"health_sync":1,"active_capability":1},"label":1}
+{"features":{"resource.network":1,"recent_blocked_sensitive_read":1},"label":0}
+{"features":{"resource.file":1,"existing_handle_or_flow":1,"user_initiated":1},"label":1}
+{"features":{"resource.file":1},"label":0}
+{"features":{"resource.bluetooth":1,"companion_connected":1,"active_capability":1},"label":1}
+{"features":{"resource.identity":1},"label":0}

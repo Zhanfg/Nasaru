@@ -1,0 +1,39 @@
+name: Train Generic Privacy Student
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "training/**"
+      - "schemas/**"
+      - "crates/micro/**"
+      - ".github/workflows/train-student.yml"
+permissions:
+  contents: read
+concurrency:
+  group: nasaru-generic-student
+  cancel-in-progress: true
+jobs:
+  train:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python training/train_student.py --dataset training/sample-data/generic-smoke.jsonl --output-dir build/model
+      - run: python training/evaluate_model.py --model build/model/student.json --dataset training/sample-data/generic-smoke.jsonl --output build/model/metrics.json
+      - run: python training/quality_gate.py --metrics build/model/metrics.json --runtime-model build/model/student.nsm --max-false-allow 0.20 --max-false-block 0.20 --max-bytes 65536
+      - working-directory: build/model
+        run: sha256sum student.nsm student.json metrics.json > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nasaru-micro-${{ github.sha }}
+          path: |
+            build/model/student.nsm
+            build/model/student.json
+            build/model/metrics.json
+            build/model/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30

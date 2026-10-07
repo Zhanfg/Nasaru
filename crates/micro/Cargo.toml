@@ -1,0 +1,9 @@
+[package]
+name = "nasaru-micro"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Tiny integer-only structured decision runtime for Nasaru"
+
+[lib]
+path = "src/lib.rs"
