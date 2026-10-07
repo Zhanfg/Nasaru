@@ -35,10 +35,6 @@ impl FgsTypes {
     pub const MICROPHONE: Self = Self(1 << 5);
     pub const PHONE_CALL: Self = Self(1 << 6);
 
-    pub const fn from_bits(bits: u16) -> Self {
-        Self(bits)
-    }
-
     pub const fn bits(self) -> u16 {
         self.0
     }
@@ -49,6 +45,17 @@ impl FgsTypes {
 
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
+    }
+
+    pub const fn from_bits(bits: u16) -> Self {
+        const KNOWN: u16 = FgsTypes::CAMERA.0
+            | FgsTypes::CONNECTED_DEVICE.0
+            | FgsTypes::DATA_SYNC.0
+            | FgsTypes::HEALTH.0
+            | FgsTypes::LOCATION.0
+            | FgsTypes::MICROPHONE.0
+            | FgsTypes::PHONE_CALL.0;
+        Self(bits & KNOWN)
     }
 }
 
