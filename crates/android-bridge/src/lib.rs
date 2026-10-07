@@ -50,6 +50,23 @@ pub trait AppOpsBackend {
     fn set_mode(&mut self, change: AppOpChange) -> Result<(), Self::Error>;
 }
 
+pub fn reconcile_expired<B: AppOpsBackend>(
+    broker: &mut CapabilityBroker,
+    backend: &mut B,
+    now_monotonic_ns: u64,
+) -> Result<usize, B::Error> {
+    let expired = broker.expire_collect(now_monotonic_ns);
+    let expired_count = expired.len();
+
+    for lease in expired {
+        if !broker.has_active(lease.uid, lease.resource, now_monotonic_ns) {
+            restore_foreground_baseline(backend, lease.uid, lease.resource)?;
+        }
+    }
+
+    Ok(expired_count)
+}
+
 pub fn foreground_baseline(resource: Resource) -> Option<&'static [AppOpClass]> {
     const CAMERA: &[AppOpClass] = &[AppOpClass::Camera];
     const MICROPHONE: &[AppOpClass] = &[AppOpClass::RecordAudio];
@@ -286,6 +303,40 @@ mod tests {
 
         backend.changes.clear();
         restore_foreground_baseline(&mut backend, 99, Resource::Location).unwrap();
+        assert!(backend
+            .changes
+            .iter()
+            .all(|change| change.mode == AppOpMode::Foreground));
+    }
+
+    #[test]
+    fn expiry_restores_appops_only_after_last_overlapping_lease() {
+        let mut broker = CapabilityBroker::default();
+        let first = CapabilityLease {
+            uid: 55,
+            resource: Resource::Location,
+            scope: CapabilityScope::Navigation,
+            origin: CapabilityOrigin::TrustedSystemSignal,
+            issued_monotonic_ns: 0,
+            ttl_ms: 1_000,
+        };
+        let second = CapabilityLease {
+            uid: 55,
+            resource: Resource::Location,
+            scope: CapabilityScope::Generic,
+            origin: CapabilityOrigin::LearnedDecision,
+            issued_monotonic_ns: 0,
+            ttl_ms: 2_000,
+        };
+        broker.grant(first, 0).unwrap();
+        broker.grant(second, 0).unwrap();
+
+        let mut backend = FakeAppOps::default();
+        assert_eq!(reconcile_expired(&mut broker, &mut backend, 1_000_000_000).unwrap(), 1);
+        assert!(backend.changes.is_empty());
+
+        assert_eq!(reconcile_expired(&mut broker, &mut backend, 2_000_000_000).unwrap(), 1);
+        assert_eq!(backend.changes.len(), 2);
         assert!(backend
             .changes
             .iter()
