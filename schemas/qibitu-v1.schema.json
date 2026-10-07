@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nasaru.dev/schema/qibitu-v1.json",
+  "title": "Nasaru Qibitu v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "uid",
+    "resource",
+    "scope",
+    "origin",
+    "issued_monotonic_ns",
+    "ttl_ms"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "uid": { "type": "integer", "minimum": 0 },
+    "resource": {
+      "enum": [
+        "camera",
+        "microphone",
+        "location",
+        "sensitive_file",
+        "identity",
+        "contacts",
+        "clipboard",
+        "bluetooth_scan"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "generic",
+        "navigation",
+        "health_sync",
+        "connected_device",
+        "file_transfer",
+        "media_processing",
+        "voice_session",
+        "camera_session"
+      ]
+    },
+    "origin": {
+      "enum": [
+        "trusted_system_signal",
+        "explicit_user_rule",
+        "learned_decision"
+      ]
+    },
+    "issued_monotonic_ns": { "type": "integer", "minimum": 0 },
+    "ttl_ms": { "type": "integer", "minimum": 1, "maximum": 86400000 }
+  }
+}

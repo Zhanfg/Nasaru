@@ -1,0 +1,10 @@
+[package]
+name = "nasaru-android-bridge"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Trusted Android signal and AppOps planning bridge for Nasaru"
+
+[dependencies]
+nasaru-capability = { path = "../capability" }
+nasaru-policy = { path = "../policy" }

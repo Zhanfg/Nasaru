@@ -1,0 +1,9 @@
+[package]
+name = "nasaru-capability"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Bounded Qibitu capability broker for Nasaru"
+
+[dependencies]
+nasaru-policy = { path = "../policy" }
