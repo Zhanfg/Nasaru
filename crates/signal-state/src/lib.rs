@@ -35,6 +35,10 @@ impl FgsTypes {
     pub const MICROPHONE: Self = Self(1 << 5);
     pub const PHONE_CALL: Self = Self(1 << 6);
 
+    pub const fn from_bits(bits: u16) -> Self {
+        Self(bits)
+    }
+
     pub const fn bits(self) -> u16 {
         self.0
     }
