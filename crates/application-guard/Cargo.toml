@@ -1,0 +1,10 @@
+[package]
+name = "nasaru-application-guard"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Application-layer resource decision engine for Nasaru"
+
+[dependencies]
+nasaru-capability = { path = "../capability" }
+nasaru-policy = { path = "../policy" }

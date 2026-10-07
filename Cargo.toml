@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/riksu",
     "crates/policy",
+    "crates/capability",
+    "crates/application-guard",
     "crates/micro",
     "crates/nasaru-daemon",
 ]
