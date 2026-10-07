@@ -261,13 +261,17 @@ fn one_bool(tlvs: &[Tlv], kind: u16) -> Result<bool, WireError> {
 
 fn one_u16(tlvs: &[Tlv], kind: u16) -> Result<u16, WireError> {
     let value = one(tlvs, kind)?;
-    let bytes: [u8; 2] = value.try_into().map_err(|_| WireError::InvalidField(kind))?;
+    let bytes: [u8; 2] = value
+        .try_into()
+        .map_err(|_| WireError::InvalidField(kind))?;
     Ok(u16::from_le_bytes(bytes))
 }
 
 fn one_u32(tlvs: &[Tlv], kind: u16) -> Result<u32, WireError> {
     let value = one(tlvs, kind)?;
-    let bytes: [u8; 4] = value.try_into().map_err(|_| WireError::InvalidField(kind))?;
+    let bytes: [u8; 4] = value
+        .try_into()
+        .map_err(|_| WireError::InvalidField(kind))?;
     Ok(u32::from_le_bytes(bytes))
 }
 
@@ -377,9 +381,6 @@ mod tests {
         };
         let mut frame = encode_signal_event(1, event).unwrap();
         frame.push(0);
-        assert_eq!(
-            decode_signal_event(&frame),
-            Err(WireError::LengthMismatch)
-        );
+        assert_eq!(decode_signal_event(&frame), Err(WireError::LengthMismatch));
     }
 }

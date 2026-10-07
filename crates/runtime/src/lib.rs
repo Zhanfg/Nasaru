@@ -104,18 +104,14 @@ impl<B: AppOpsBackend> M1Runtime<B> {
         now_monotonic_ns: u64,
     ) -> Result<(), RuntimeError<B::Error>> {
         let uid = signal_uid(signal);
-        let before = APPOPS_RESOURCES.map(|resource| {
-            self.broker
-                .has_active(uid, resource, now_monotonic_ns)
-        });
+        let before = APPOPS_RESOURCES
+            .map(|resource| self.broker.has_active(uid, resource, now_monotonic_ns));
 
         apply_trusted_signal(&mut self.broker, signal, now_monotonic_ns)
             .map_err(RuntimeError::Broker)?;
 
         for (index, resource) in APPOPS_RESOURCES.into_iter().enumerate() {
-            let after = self
-                .broker
-                .has_active(uid, resource, now_monotonic_ns);
+            let after = self.broker.has_active(uid, resource, now_monotonic_ns);
             match (before[index], after) {
                 (false, true) => {
                     enable_background_override(&mut self.backend, uid, resource)
