@@ -97,7 +97,11 @@ pub fn apply_trusted_signal(
         }
         TrustedSignal::VoiceSessionStarted { uid, video } => {
             let resources: &[Resource] = if video {
-                &[Resource::Microphone, Resource::Camera, Resource::NetworkEgress]
+                &[
+                    Resource::Microphone,
+                    Resource::Camera,
+                    Resource::NetworkEgress,
+                ]
             } else {
                 &[Resource::Microphone, Resource::NetworkEgress]
             };

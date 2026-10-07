@@ -110,16 +110,9 @@ impl CapabilityBroker {
         Ok(GrantOutcome::Inserted)
     }
 
-    pub fn has_active(
-        &self,
-        uid: u32,
-        resource: Resource,
-        now_monotonic_ns: u64,
-    ) -> bool {
+    pub fn has_active(&self, uid: u32, resource: Resource, now_monotonic_ns: u64) -> bool {
         self.leases.iter().any(|lease| {
-            lease.uid == uid
-                && lease.resource == resource
-                && !lease.is_expired(now_monotonic_ns)
+            lease.uid == uid && lease.resource == resource && !lease.is_expired(now_monotonic_ns)
         })
     }
 
@@ -215,10 +208,7 @@ mod tests {
             .grant(lease(10001, Resource::Location, 100, 100), 100)
             .unwrap();
         let renewed = lease(10001, Resource::Location, 200, 200);
-        assert_eq!(
-            broker.grant(renewed, 200).unwrap(),
-            GrantOutcome::Replaced
-        );
+        assert_eq!(broker.grant(renewed, 200).unwrap(), GrantOutcome::Replaced);
         assert_eq!(broker.len(), 1);
         assert!(broker.has_active(10001, Resource::Location, 150_000_000));
     }

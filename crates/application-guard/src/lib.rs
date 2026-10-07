@@ -24,10 +24,7 @@ pub struct AccessRequest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelAdvice {
-    AllowTemporary {
-        scope: CapabilityScope,
-        ttl_ms: u32,
-    },
+    AllowTemporary { scope: CapabilityScope, ttl_ms: u32 },
     Deny,
     Abstain,
 }
@@ -39,10 +36,7 @@ pub trait ModelAdvisor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuardDecision {
     Allow(Reason),
-    AllowTemporary {
-        scope: CapabilityScope,
-        ttl_ms: u32,
-    },
+    AllowTemporary { scope: CapabilityScope, ttl_ms: u32 },
     Deny(Reason),
     DenyByModel,
     DeferToPlatform,
