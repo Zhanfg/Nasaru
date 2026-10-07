@@ -1,0 +1,9 @@
+[package]
+name = "nasaru-signal-state"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Event-driven Android signal state and high-confidence session derivation for Nasaru"
+
+[dependencies]
+nasaru-android-bridge = { path = "../android-bridge" }
