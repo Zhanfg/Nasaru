@@ -22,6 +22,7 @@ const EVENT_APPOP_ACTIVE: u8 = 3;
 const EVENT_COMPANION_PRESENCE: u8 = 4;
 const EVENT_PACKAGE_ADDED: u8 = 5;
 const EVENT_PACKAGE_REMOVED: u8 = 6;
+const EVENT_BOOTSTRAP_UID: u8 = 7;
 
 pub const MAX_SIGNAL_PAYLOAD: usize = 512;
 
@@ -62,7 +63,8 @@ pub fn encode_signal_event(sequence: u64, event: SignalEvent) -> Result<Vec<u8>,
         SignalEvent::CompanionPresenceChanged { present, .. } => {
             push_bool(&mut tlvs, TLV_PRESENT, present);
         }
-        SignalEvent::PackageAdded { third_party, .. } => {
+        SignalEvent::BootstrapUid { third_party, .. }
+        | SignalEvent::PackageAdded { third_party, .. } => {
             push_bool(&mut tlvs, TLV_THIRD_PARTY, third_party);
         }
         SignalEvent::PackageRemoved { replacing, .. } => {
@@ -138,6 +140,11 @@ pub fn decode_signal_event(frame: &[u8]) -> Result<SignalEvent, WireError> {
             present: one_bool(&tlvs, TLV_PRESENT)?,
             monotonic_ns,
         }),
+        EVENT_BOOTSTRAP_UID => Ok(SignalEvent::BootstrapUid {
+            uid,
+            third_party: one_bool(&tlvs, TLV_THIRD_PARTY)?,
+            monotonic_ns,
+        }),
         EVENT_PACKAGE_ADDED => Ok(SignalEvent::PackageAdded {
             uid,
             third_party: one_bool(&tlvs, TLV_THIRD_PARTY)?,
@@ -158,6 +165,7 @@ fn event_kind(event: SignalEvent) -> u8 {
         SignalEvent::ForegroundServiceTypesChanged { .. } => EVENT_FGS_TYPES,
         SignalEvent::AppOpActiveChanged { .. } => EVENT_APPOP_ACTIVE,
         SignalEvent::CompanionPresenceChanged { .. } => EVENT_COMPANION_PRESENCE,
+        SignalEvent::BootstrapUid { .. } => EVENT_BOOTSTRAP_UID,
         SignalEvent::PackageAdded { .. } => EVENT_PACKAGE_ADDED,
         SignalEvent::PackageRemoved { .. } => EVENT_PACKAGE_REMOVED,
     }
@@ -302,15 +310,20 @@ mod tests {
                 present: true,
                 monotonic_ns: 14,
             },
-            SignalEvent::PackageAdded {
+            SignalEvent::BootstrapUid {
                 uid: 10005,
                 third_party: true,
                 monotonic_ns: 15,
             },
-            SignalEvent::PackageRemoved {
+            SignalEvent::PackageAdded {
                 uid: 10006,
-                replacing: false,
+                third_party: true,
                 monotonic_ns: 16,
+            },
+            SignalEvent::PackageRemoved {
+                uid: 10007,
+                replacing: false,
+                monotonic_ns: 17,
             },
         ]
     }
