@@ -295,8 +295,10 @@ fn unix_address(path: &Path) -> Result<UnixAddress, TransportError> {
 
 fn prepare_socket_path(path: &Path) -> Result<(), TransportError> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+        }
     }
 
     let Ok(metadata) = fs::symlink_metadata(path) else {
@@ -380,10 +382,9 @@ mod tests {
 
     fn temp_socket(name: &str) -> PathBuf {
         let sequence = NEXT_PATH.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!(
-            "nasaru-{name}-{}-{sequence}.sock",
-            std::process::id()
-        ))
+        std::env::temp_dir()
+            .join(format!("nasaru-transport-{}-{sequence}", std::process::id()))
+            .join(format!("{name}.sock"))
     }
 
     #[test]
@@ -414,6 +415,21 @@ mod tests {
     }
 
     #[test]
+    fn existing_parent_permissions_are_never_modified() {
+        let path = temp_socket("parent-mode");
+        let parent = path.parent().unwrap();
+        fs::create_dir_all(parent).unwrap();
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o755)).unwrap();
+
+        {
+            let _listener = SeqPacketListener::bind(&path).unwrap();
+            assert_eq!(fs::metadata(parent).unwrap().permissions().mode() & 0o777, 0o755);
+        }
+
+        fs::remove_dir(parent).unwrap();
+    }
+
+    #[test]
     fn seqpacket_preserves_one_riksu_frame_per_receive() {
         let path = temp_socket("roundtrip");
         let listener = SeqPacketListener::bind(&path).unwrap();
@@ -430,6 +446,7 @@ mod tests {
         client.send_packet(b"riksu-event").unwrap();
         assert_eq!(client.recv_packet(128).unwrap().unwrap(), b"ack");
         server.join().unwrap();
+        fs::remove_dir(path.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -441,6 +458,7 @@ mod tests {
             Err(TransportError::ExistingPathNotSocket)
         ));
         assert_eq!(fs::read(&path).unwrap(), b"do-not-delete");
-        fs::remove_file(path).unwrap();
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(path.parent().unwrap()).unwrap();
     }
 }
