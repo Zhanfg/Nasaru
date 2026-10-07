@@ -458,6 +458,7 @@ mod tests {
     #[test]
     fn existing_regular_file_is_never_unlinked() {
         let path = temp_socket("regular");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, b"do-not-delete").unwrap();
         assert!(matches!(
             SeqPacketListener::bind(&path),
