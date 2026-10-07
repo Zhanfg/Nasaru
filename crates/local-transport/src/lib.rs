@@ -150,10 +150,7 @@ impl SeqPacketListener {
         Self::bind_abstract_with_backlog(name, DEFAULT_BACKLOG)
     }
 
-    pub fn bind_abstract_with_backlog(
-        name: &[u8],
-        backlog: i32,
-    ) -> Result<Self, TransportError> {
+    pub fn bind_abstract_with_backlog(name: &[u8], backlog: i32) -> Result<Self, TransportError> {
         let address = abstract_address(name)?;
         let fd = create_seqpacket_socket()?;
 
