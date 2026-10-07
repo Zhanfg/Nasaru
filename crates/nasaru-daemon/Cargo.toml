@@ -5,8 +5,10 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+nasaru-android-bridge = { path = "../android-bridge" }
 nasaru-android-shell-backend = { path = "../android-shell-backend" }
 nasaru-runtime = { path = "../runtime" }
+nasaru-signal-state = { path = "../signal-state" }
 nasaru-signal-wire = { path = "../signal-wire" }
 
 [lib]
