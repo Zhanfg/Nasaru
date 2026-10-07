@@ -36,8 +36,12 @@ impl MicroModel {
             return Err(MicroError::BadLength);
         }
         let mut weights_q12 = Vec::with_capacity(dims);
-        for pair in input[MICRO_HEADER_LEN..].chunks_exact(2) {
-            weights_q12.push(i16::from_le_bytes([pair[0], pair[1]]));
+        let (pairs, remainder) = input[MICRO_HEADER_LEN..].as_chunks::<2>();
+        if !remainder.is_empty() {
+            return Err(MicroError::BadLength);
+        }
+        for pair in pairs {
+            weights_q12.push(i16::from_le_bytes(*pair));
         }
         Ok(Self {
             schema_version,
