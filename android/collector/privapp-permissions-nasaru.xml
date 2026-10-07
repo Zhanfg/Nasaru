@@ -1,0 +1,5 @@
+<permissions>
+    <privapp-permissions package="dev.nasaru.collector">
+        <permission name="android.permission.WATCH_APPOPS" />
+    </privapp-permissions>
+</permissions>

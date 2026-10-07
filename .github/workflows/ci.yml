@@ -27,3 +27,21 @@ jobs:
       - run: python training/train_student.py --dataset training/sample-data/generic-smoke.jsonl --output-dir build/model
       - run: python training/evaluate_model.py --model build/model/student.json --dataset training/sample-data/generic-smoke.jsonl --output build/model/metrics.json
       - run: python training/quality_gate.py --metrics build/model/metrics.json --runtime-model build/model/student.nsm
+
+  android-collector:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android 17 SDK
+        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+      - name: Test and build collector
+        working-directory: android/collector
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
