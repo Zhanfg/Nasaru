@@ -124,12 +124,7 @@ impl CapabilityBroker {
         self.remove_matching(|lease| lease.uid == uid && lease.resource == resource)
     }
 
-    pub fn revoke_scoped(
-        &mut self,
-        uid: u32,
-        resource: Resource,
-        scope: CapabilityScope,
-    ) -> usize {
+    pub fn revoke_scoped(&mut self, uid: u32, resource: Resource, scope: CapabilityScope) -> usize {
         self.remove_matching(|lease| {
             lease.uid == uid && lease.resource == resource && lease.scope == scope
         })
@@ -271,11 +266,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            broker.revoke_scoped(
-                77,
-                Resource::NetworkEgress,
-                CapabilityScope::Navigation
-            ),
+            broker.revoke_scoped(77, Resource::NetworkEgress, CapabilityScope::Navigation),
             1
         );
         assert!(broker.has_active(77, Resource::NetworkEgress, 1));

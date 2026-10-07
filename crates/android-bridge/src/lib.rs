@@ -290,12 +290,7 @@ mod tests {
     #[test]
     fn stopping_navigation_preserves_voice_network_lease() {
         let mut broker = CapabilityBroker::default();
-        apply_trusted_signal(
-            &mut broker,
-            TrustedSignal::NavigationStarted { uid: 21 },
-            0,
-        )
-        .unwrap();
+        apply_trusted_signal(&mut broker, TrustedSignal::NavigationStarted { uid: 21 }, 0).unwrap();
         apply_trusted_signal(
             &mut broker,
             TrustedSignal::VoiceSessionStarted { uid: 21 },
@@ -303,12 +298,7 @@ mod tests {
         )
         .unwrap();
 
-        apply_trusted_signal(
-            &mut broker,
-            TrustedSignal::NavigationStopped { uid: 21 },
-            1,
-        )
-        .unwrap();
+        apply_trusted_signal(&mut broker, TrustedSignal::NavigationStopped { uid: 21 }, 1).unwrap();
 
         assert!(broker.has_active(21, Resource::NetworkEgress, 2));
         assert!(!broker.has_active(21, Resource::Location, 2));
