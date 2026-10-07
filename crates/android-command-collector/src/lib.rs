@@ -5,8 +5,7 @@ use nasaru_signal_state::{SignalEvent, UidImportance};
 use nasaru_signal_wire::{encode_signal_event, WireError};
 use std::collections::BTreeSet;
 use std::ffi::CStr;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader};
 use std::mem::size_of;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
@@ -239,11 +238,7 @@ pub fn spawn_package_watch(
         let mut previous = initial;
         let mut watcher = watcher;
 
-        loop {
-            let changed = match watcher.wait_for_package_metadata_change() {
-                Ok(changed) => changed,
-                Err(_) => break,
-            };
+        while let Ok(changed) = watcher.wait_for_package_metadata_change() {
             if !changed {
                 continue;
             }
@@ -313,7 +308,9 @@ impl PackageWatcher {
         let mut offset = 0usize;
         let count = count as usize;
         while offset + size_of::<libc::inotify_event>() <= count {
-            let event = unsafe { &*(buffer.as_ptr().add(offset) as *const libc::inotify_event) };
+            let event = unsafe {
+                std::ptr::read_unaligned(buffer.as_ptr().add(offset) as *const libc::inotify_event)
+            };
             let name_start = offset + size_of::<libc::inotify_event>();
             let name_end = name_start.saturating_add(event.len as usize);
             if name_end > count {
