@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nasaru.dev/schema/privacy-decision-v1.json",
+  "title": "Nasaru PrivacyDecision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "action", "reason_code", "source"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "action": { "enum": ["allow", "allow_temporary", "deny", "redact"] },
+    "reason_code": { "type": "string", "minLength": 1 },
+    "source": { "enum": ["invariant", "explicit_user_rule", "user_adapter", "base_student"] },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "ttl_ms": { "type": ["integer", "null"], "minimum": 0 }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nasaru.dev/schema/privacy-event-v1.json",
+  "title": "Nasaru PrivacyEvent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "monotonic_ns", "uid", "resource", "operation", "context"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "monotonic_ns": { "type": "integer", "minimum": 0 },
+    "uid": { "type": "integer", "minimum": 0 },
+    "resource": { "enum": ["camera", "microphone", "location", "sensitive_file", "network_egress", "identity", "contacts", "clipboard", "bluetooth_scan"] },
+    "operation": { "type": "string", "minLength": 1 },
+    "context": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "foreground": { "type": "boolean" },
+        "user_initiated": { "type": "boolean" },
+        "existing_handle_or_flow": { "type": "boolean" },
+        "active_capability": { "type": "boolean" },
+        "fgs_type": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

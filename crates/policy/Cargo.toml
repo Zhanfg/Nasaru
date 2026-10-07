@@ -1,0 +1,9 @@
+[package]
+name = "nasaru-policy"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Deterministic policy fast path for Nasaru"
+
+[lib]
+path = "src/lib.rs"
