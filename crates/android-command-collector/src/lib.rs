@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use nasaru_local_transport::{SeqPacketConnection, TransportError};
-use nasaru_signal_state::{SignalEvent, UidImportance};
+use nasaru_signal_state::{ActiveOp, FgsTypes, SignalEvent, UidImportance};
 use nasaru_signal_wire::{encode_signal_event, WireError};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CStr;
 use std::io::{self, BufRead, BufReader};
 use std::mem::size_of;
@@ -13,12 +13,17 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::Sender;
 
 pub const DEFAULT_CMD_PATH: &str = "/system/bin/cmd";
+pub const DEFAULT_APP_PROCESS_PATH: &str = "/system/bin/app_process";
 pub const DEFAULT_PACKAGE_DIR: &str = "/data/system";
+pub const DEFAULT_FRAMEWORK_HELPER_JAR: &str =
+    "/data/adb/nasaru/lib/nasaru-framework-observer.jar";
 pub const DEFAULT_SOCKET_PATH: &str = "/data/adb/nasaru/run/collector.sock";
 
 #[derive(Debug, Clone)]
 pub struct CommandPaths {
     pub cmd: PathBuf,
+    pub app_process: PathBuf,
+    pub framework_helper_jar: PathBuf,
     pub package_dir: PathBuf,
 }
 
@@ -26,6 +31,8 @@ impl Default for CommandPaths {
     fn default() -> Self {
         Self {
             cmd: PathBuf::from(DEFAULT_CMD_PATH),
+            app_process: PathBuf::from(DEFAULT_APP_PROCESS_PATH),
+            framework_helper_jar: PathBuf::from(DEFAULT_FRAMEWORK_HELPER_JAR),
             package_dir: PathBuf::from(DEFAULT_PACKAGE_DIR),
         }
     }
@@ -129,6 +136,131 @@ pub fn procstate_to_importance(state: &str) -> Option<UidImportance> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameworkWireOp {
+    Camera,
+    Microphone,
+    FineLocation,
+    CoarseLocation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameworkObserverLine {
+    Ready,
+    AppOp {
+        uid: u32,
+        op: FrameworkWireOp,
+        active: bool,
+    },
+    ForegroundServiceTypes {
+        uid: u32,
+        types: FgsTypes,
+    },
+}
+
+pub fn parse_framework_observer_line(line: &str) -> Option<FrameworkObserverLine> {
+    let mut fields = line.trim().split('\t');
+    match fields.next()? {
+        "NASARU_READY" => Some(FrameworkObserverLine::Ready),
+        "NASARU_APPOP" => {
+            let uid = fields.next()?.parse::<u32>().ok()?;
+            let op = match fields.next()? {
+                "CAMERA" => FrameworkWireOp::Camera,
+                "MICROPHONE" => FrameworkWireOp::Microphone,
+                "FINE_LOCATION" => FrameworkWireOp::FineLocation,
+                "COARSE_LOCATION" => FrameworkWireOp::CoarseLocation,
+                _ => return None,
+            };
+            let active = match fields.next()? {
+                "1" => true,
+                "0" => false,
+                _ => return None,
+            };
+            Some(FrameworkObserverLine::AppOp { uid, op, active })
+        }
+        "NASARU_FGS" => {
+            let uid = fields.next()?.parse::<u32>().ok()?;
+            let bits = fields.next()?.parse::<u16>().ok()?;
+            Some(FrameworkObserverLine::ForegroundServiceTypes {
+                uid,
+                types: FgsTypes::from_bits(bits),
+            })
+        }
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct RawAppOps {
+    camera: bool,
+    microphone: bool,
+    fine_location: bool,
+    coarse_location: bool,
+}
+
+impl RawAppOps {
+    fn semantic_active(self, op: FrameworkWireOp) -> bool {
+        match op {
+            FrameworkWireOp::Camera => self.camera,
+            FrameworkWireOp::Microphone => self.microphone,
+            FrameworkWireOp::FineLocation | FrameworkWireOp::CoarseLocation => {
+                self.fine_location || self.coarse_location
+            }
+        }
+    }
+
+    fn set(&mut self, op: FrameworkWireOp, active: bool) {
+        match op {
+            FrameworkWireOp::Camera => self.camera = active,
+            FrameworkWireOp::Microphone => self.microphone = active,
+            FrameworkWireOp::FineLocation => self.fine_location = active,
+            FrameworkWireOp::CoarseLocation => self.coarse_location = active,
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        !(self.camera || self.microphone || self.fine_location || self.coarse_location)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct AppOpsAggregate {
+    by_uid: BTreeMap<u32, RawAppOps>,
+}
+
+impl AppOpsAggregate {
+    pub fn ingest(
+        &mut self,
+        uid: u32,
+        op: FrameworkWireOp,
+        active: bool,
+        monotonic_ns: u64,
+    ) -> Option<SignalEvent> {
+        let raw = self.by_uid.entry(uid).or_default();
+        let before = raw.semantic_active(op);
+        raw.set(op, active);
+        let after = raw.semantic_active(op);
+        let empty = raw.is_empty();
+
+        let semantic_op = match op {
+            FrameworkWireOp::Camera => ActiveOp::Camera,
+            FrameworkWireOp::Microphone => ActiveOp::Microphone,
+            FrameworkWireOp::FineLocation | FrameworkWireOp::CoarseLocation => ActiveOp::Location,
+        };
+
+        if empty {
+            self.by_uid.remove(&uid);
+        }
+
+        (before != after).then_some(SignalEvent::AppOpActiveChanged {
+            uid,
+            op: semantic_op,
+            active: after,
+            monotonic_ns,
+        })
+    }
+}
+
 pub fn parse_third_party_uid_snapshot(output: &str) -> BTreeSet<u32> {
     output
         .lines()
@@ -218,6 +350,65 @@ pub fn spawn_uid_watch(
                 break;
             };
             if let Some(event) = parse_watch_uids_line(&line, now_ns) {
+                if tx.send(event).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(child)
+}
+
+pub fn spawn_framework_observer(
+    paths: &CommandPaths,
+    tx: Sender<SignalEvent>,
+) -> Result<Child, CollectorError> {
+    let mut child = Command::new(&paths.app_process)
+        .env("CLASSPATH", &paths.framework_helper_jar)
+        .args(["/system/bin", "dev.nasaru.collector.FrameworkObserverMain"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or(CollectorError::SourceEnded(
+            "framework observer stdout unavailable",
+        ))?;
+
+    std::thread::spawn(move || {
+        let mut appops = AppOpsAggregate::default();
+        let reader = BufReader::new(stdout);
+
+        for line in reader.lines() {
+            let Ok(line) = line else {
+                break;
+            };
+            let Some(message) = parse_framework_observer_line(&line) else {
+                continue;
+            };
+            let Ok(now_ns) = monotonic_ns() else {
+                break;
+            };
+
+            let event = match message {
+                FrameworkObserverLine::Ready => None,
+                FrameworkObserverLine::ForegroundServiceTypes { uid, types } => {
+                    Some(SignalEvent::ForegroundServiceTypesChanged {
+                        uid,
+                        types,
+                        monotonic_ns: now_ns,
+                    })
+                }
+                FrameworkObserverLine::AppOp { uid, op, active } => {
+                    appops.ingest(uid, op, active, now_ns)
+                }
+            };
+
+            if let Some(event) = event {
                 if tx.send(event).is_err() {
                     break;
                 }
@@ -346,6 +537,13 @@ pub fn run_native_collector(
 
     let (tx, rx) = std::sync::mpsc::channel();
     let _uid_child = spawn_uid_watch(&paths, tx.clone())?;
+    let _framework_child = match spawn_framework_observer(&paths, tx.clone()) {
+        Ok(child) => Some(child),
+        Err(error) => {
+            eprintln!("nasaru-collector: framework observer unavailable: {error:?}");
+            None
+        }
+    };
     let _package_thread = spawn_package_watch(paths, initial, tx.clone())?;
     drop(tx);
 
@@ -409,6 +607,61 @@ mod tests {
             Some(UidImportance::ForegroundService)
         );
         assert_eq!(procstate_to_importance("CE"), Some(UidImportance::Cached));
+    }
+
+    #[test]
+    fn parses_framework_observer_messages() {
+        assert_eq!(
+            parse_framework_observer_line("NASARU_APPOP\t12345\tCAMERA\t1"),
+            Some(FrameworkObserverLine::AppOp {
+                uid: 12345,
+                op: FrameworkWireOp::Camera,
+                active: true
+            })
+        );
+        assert_eq!(
+            parse_framework_observer_line("NASARU_FGS\t12345\t80"),
+            Some(FrameworkObserverLine::ForegroundServiceTypes {
+                uid: 12345,
+                types: FgsTypes::from_bits(80)
+            })
+        );
+        assert_eq!(
+            parse_framework_observer_line("NASARU_READY"),
+            Some(FrameworkObserverLine::Ready)
+        );
+    }
+
+    #[test]
+    fn fine_and_coarse_location_are_aggregated() {
+        let mut aggregate = AppOpsAggregate::default();
+
+        assert_eq!(
+            aggregate.ingest(7, FrameworkWireOp::FineLocation, true, 1),
+            Some(SignalEvent::AppOpActiveChanged {
+                uid: 7,
+                op: ActiveOp::Location,
+                active: true,
+                monotonic_ns: 1
+            })
+        );
+        assert_eq!(
+            aggregate.ingest(7, FrameworkWireOp::CoarseLocation, true, 2),
+            None
+        );
+        assert_eq!(
+            aggregate.ingest(7, FrameworkWireOp::FineLocation, false, 3),
+            None
+        );
+        assert_eq!(
+            aggregate.ingest(7, FrameworkWireOp::CoarseLocation, false, 4),
+            Some(SignalEvent::AppOpActiveChanged {
+                uid: 7,
+                op: ActiveOp::Location,
+                active: false,
+                monotonic_ns: 4
+            })
+        );
     }
 
     #[test]
