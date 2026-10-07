@@ -383,7 +383,10 @@ mod tests {
     fn temp_socket(name: &str) -> PathBuf {
         let sequence = NEXT_PATH.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir()
-            .join(format!("nasaru-transport-{}-{sequence}", std::process::id()))
+            .join(format!(
+                "nasaru-transport-{}-{sequence}",
+                std::process::id()
+            ))
             .join(format!("{name}.sock"))
     }
 
@@ -423,7 +426,10 @@ mod tests {
 
         {
             let _listener = SeqPacketListener::bind(&path).unwrap();
-            assert_eq!(fs::metadata(parent).unwrap().permissions().mode() & 0o777, 0o755);
+            assert_eq!(
+                fs::metadata(parent).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
         }
 
         fs::remove_dir(parent).unwrap();
