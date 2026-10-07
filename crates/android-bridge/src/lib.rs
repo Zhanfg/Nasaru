@@ -69,11 +69,8 @@ pub fn reconcile_expired<B: AppOpsBackend>(
     Ok(expired_count)
 }
 
-pub const APP_GUARD_RESOURCES: [Resource; 3] = [
-    Resource::Camera,
-    Resource::Microphone,
-    Resource::Location,
-];
+pub const APP_GUARD_RESOURCES: [Resource; 3] =
+    [Resource::Camera, Resource::Microphone, Resource::Location];
 
 pub fn foreground_baseline(resource: Resource) -> Option<&'static [AppOpClass]> {
     const CAMERA: &[AppOpClass] = &[AppOpClass::Camera];

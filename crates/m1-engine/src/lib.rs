@@ -39,11 +39,7 @@ impl<B: AppOpsBackend> M1Engine<B> {
         }
     }
 
-    pub fn with_state(
-        appops: B,
-        signals: SignalState,
-        broker: CapabilityBroker,
-    ) -> Self {
+    pub fn with_state(appops: B, signals: SignalState, broker: CapabilityBroker) -> Self {
         Self {
             signals,
             broker,
@@ -161,9 +157,12 @@ impl<B: AppOpsBackend> M1Engine<B> {
 
             if let Err(error) = result {
                 self.broker = before.clone();
-                if let Err(rollback_error) =
-                    self.restore_appops_from_snapshot(&before, signal_uid(signal), &changed_resources, now_monotonic_ns)
-                {
+                if let Err(rollback_error) = self.restore_appops_from_snapshot(
+                    &before,
+                    signal_uid(signal),
+                    &changed_resources,
+                    now_monotonic_ns,
+                ) {
                     return Err(EngineError::AppOpsRollback(rollback_error));
                 }
                 return Err(EngineError::AppOps(error));
@@ -342,15 +341,14 @@ mod tests {
         )
         .unwrap();
 
-        let mut engine = M1Engine::with_state(
-            RecordingAppOps::default(),
-            SignalState::default(),
-            broker,
-        );
+        let mut engine =
+            M1Engine::with_state(RecordingAppOps::default(), SignalState::default(), broker);
         let report = engine.tick(120_000_000_000).unwrap();
 
         assert_eq!(report.expired_leases, 2);
-        assert!(!engine.broker().has_active(9, Resource::Location, 120_000_000_000));
+        assert!(!engine
+            .broker()
+            .has_active(9, Resource::Location, 120_000_000_000));
         assert_eq!(engine.appops().changes.len(), 2);
         assert!(engine
             .appops()
