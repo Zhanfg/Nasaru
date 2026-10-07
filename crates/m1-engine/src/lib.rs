@@ -135,7 +135,7 @@ impl<B: AppOpsBackend> M1Engine<B> {
             .map_err(EngineError::Broker)?;
 
         let mut changed_resources = Vec::new();
-        for resource in affected {
+        for &resource in affected {
             if !foreground_managed(resource) {
                 continue;
             }
