@@ -6,7 +6,9 @@ The collector is intentionally a tiny Java-only privileged system helper. It has
 
 ## Android 17 build baseline
 
-- compileSdk / targetSdk: 37
+- compileSdk: 37.0 (`compileSdk = 37`, `compileSdkMinor = 0`)
+- targetSdk: 37
+- Android SDK package coordinate used by CI: `platforms;android-37.0`
 - Android Gradle Plugin: 9.4.0
 - Gradle: 9.6.0
 - JDK: 17

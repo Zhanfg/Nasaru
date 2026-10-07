@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "dev.nasaru.collector"
     compileSdk = 37
+    compileSdkMinor = 0
 
     defaultConfig {
         applicationId = "dev.nasaru.collector"
