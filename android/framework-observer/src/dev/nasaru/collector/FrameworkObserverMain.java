@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package dev.nasaru.collector;
 
-import android.Manifest;
 import android.app.AppOpsManager;
 import android.app.IProcessObserver;
 import android.content.Context;
@@ -32,7 +31,7 @@ public final class FrameworkObserverMain {
 
         Context context = systemContext();
         if (context.checkPermission(
-                Manifest.permission.WATCH_APPOPS,
+                "android.permission.WATCH_APPOPS",
                 Process.myPid(),
                 Process.myUid()) != PackageManager.PERMISSION_GRANTED) {
             throw new SecurityException("WATCH_APPOPS unavailable");
