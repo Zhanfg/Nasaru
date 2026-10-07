@@ -69,9 +69,13 @@ impl<B: AppOpsBackend> M1Runtime<B> {
     ) -> Result<Vec<RuntimeEffect>, RuntimeError<B::Error>> {
         self.expire(event.monotonic_ns())?;
 
+        let signal_snapshot = self.signals.clone();
         let mut out = Vec::new();
         for effect in self.signals.ingest(event) {
-            self.apply_effect(effect, event.monotonic_ns(), &mut out)?;
+            if let Err(error) = self.apply_effect(effect, event.monotonic_ns(), &mut out) {
+                self.signals = signal_snapshot;
+                return Err(error);
+            }
         }
         Ok(out)
     }
@@ -254,9 +258,9 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_uid_applies_foreground_baseline() {
+    fn bootstrap_uid_waits_for_safe_lifecycle_before_baseline() {
         let mut runtime = M1Runtime::new(FakeBackend::default());
-        let effects = runtime
+        let bootstrap = runtime
             .handle_event(SignalEvent::BootstrapUid {
                 uid: 20000,
                 third_party: true,
@@ -264,16 +268,58 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(
-            effects,
-            vec![RuntimeEffect::ThirdPartyBaselineApplied { uid: 20000 }]
-        );
+        assert!(!bootstrap.contains(&RuntimeEffect::ThirdPartyBaselineApplied { uid: 20000 }));
+        assert!(runtime.backend().changes.is_empty());
+
+        let foreground = runtime
+            .handle_event(SignalEvent::UidImportanceChanged {
+                uid: 20000,
+                importance: UidImportance::Foreground,
+                monotonic_ns: 2,
+            })
+            .unwrap();
+
+        assert!(foreground.contains(&RuntimeEffect::ThirdPartyBaselineApplied { uid: 20000 }));
         assert_eq!(runtime.backend().changes.len(), 4);
         assert!(runtime
             .backend()
             .changes
             .iter()
             .all(|change| change.mode == AppOpMode::Foreground));
+    }
+
+    #[test]
+    fn baseline_backend_failure_restores_pending_signal_state_for_retry() {
+        let backend = FakeBackend {
+            changes: Vec::new(),
+            fail_after: Some(0),
+        };
+        let mut runtime = M1Runtime::new(backend);
+
+        runtime
+            .handle_event(SignalEvent::BootstrapUid {
+                uid: 20010,
+                third_party: true,
+                monotonic_ns: 1,
+            })
+            .unwrap();
+
+        let first = runtime.handle_event(SignalEvent::UidImportanceChanged {
+            uid: 20010,
+            importance: UidImportance::Foreground,
+            monotonic_ns: 2,
+        });
+        assert!(matches!(first, Err(RuntimeError::Backend(_))));
+
+        runtime.backend_mut().fail_after = None;
+        let retry = runtime
+            .handle_event(SignalEvent::UidImportanceChanged {
+                uid: 20010,
+                importance: UidImportance::Foreground,
+                monotonic_ns: 3,
+            })
+            .unwrap();
+        assert!(retry.contains(&RuntimeEffect::ThirdPartyBaselineApplied { uid: 20010 }));
     }
 
     #[test]
